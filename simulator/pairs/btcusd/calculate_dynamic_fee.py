@@ -32,7 +32,5 @@ def calculate_dynamic_fee() -> None:
     logger.info(f"Results: {results}")
 
 
-
-
 if __name__ == "__main__":
     calculate_dynamic_fee()

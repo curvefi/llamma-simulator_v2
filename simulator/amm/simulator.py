@@ -1,7 +1,9 @@
 import logging
 import random
-from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
+from multiprocessing import Pool
+
+import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
 from .lending_amm import LendingAMM
@@ -164,62 +166,73 @@ class Simulator:
     def single_run_kw(self, kw):
         return self.single_run(**kw)
 
-    def get_loss_rate(
-        self,
-        A: int,
-        initial_liquidity_range: int,
-        dynamic_fee_multiplier: float | None = None,
-        samples: int | None = None,
-        n_top_samples: int | None = None,
-        max_loan_duration: float | None = None,
-        min_loan_duration: float | None = None,
-        position_shift: float = 0,
-        use_threading: bool = False,  # somehow it's slower
-    ):
-        if not samples:
-            samples = self.samples
-        if not max_loan_duration:
-            max_loan_duration = self.max_loan_duration
-        if not min_loan_duration:
-            min_loan_duration = self.min_loan_duration
 
-        day_fraction = 86400 / (self.prices[-1][0] - self.prices[0][0])  # Which fraction of all data is 1 day
+def get_loss_rate(
+    initial_liquidity_class: type[BaseRangeInitialLiquidity],
+    price_history_loader: BasePriceHistoryLoader,
+    price_oracle: BasePriceOracle,
+    external_fee: float,
+    A: int,
+    initial_liquidity_range: int,
+    dynamic_fee_multiplier: float | None = None,
+    samples: int | None = None,
+    n_top_samples: int | None = None,
+    max_loan_duration: float | None = None,
+    min_loan_duration: float | None = None,
+    position_shift: float = 0,
+    use_threading: bool = True,
+):
+    simulator = Simulator(
+        initial_liquidity_class=initial_liquidity_class,
+        price_history_loader=price_history_loader,
+        price_oracle=price_oracle,
+        external_fee=external_fee,
+    )
 
-        kwargs_list = []
-        for _ in range(samples):
-            position_start = random.random()
-            position_period = min_loan_duration * day_fraction
-            position_period += (max_loan_duration - min_loan_duration) * day_fraction * random.random()
+    if not samples:
+        samples = simulator.samples
+    if not max_loan_duration:
+        max_loan_duration = simulator.max_loan_duration
+    if not min_loan_duration:
+        min_loan_duration = simulator.min_loan_duration
 
-            kwargs_list.append(
-                {
-                    "A": A,
-                    "position_start": position_start,
-                    "position_period": position_period,
-                    "initial_liquidity_range": initial_liquidity_range,
-                    "dynamic_fee_multiplier": dynamic_fee_multiplier,
-                    "position_shift": position_shift,
-                }
-            )
+    day_fraction = 86400 / (simulator.prices[-1][0] - simulator.prices[0][0])  # Which fraction of all data is 1 day
 
-        if use_threading:
-            with ProcessPoolExecutor(max_workers=8) as pool:
-                results = pool.map(self.single_run_kw, kwargs_list)
-        else:
-            results = []
-            for kw in kwargs_list:
-                try:
-                    sr_result = self.single_run(**kw)
-                    if self.log_enabled:
-                        logger.info(
-                            f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
-                            f"position_period:{kw['position_period']}: {kw['sr_result']}"
-                        )
-                    results.append(sr_result)
-                except Exception as e:
-                    logger.warning(e)
-                    results.append(0)
+    kwargs_list = []
+    for _ in range(samples):
+        position_start = random.random()
+        position_period = min_loan_duration * day_fraction
+        position_period += (max_loan_duration - min_loan_duration) * day_fraction * random.random()
 
-        if not n_top_samples:
-            n_top_samples = samples // 20
-        return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples
+        kwargs_list.append(
+            {
+                "A": A,
+                "position_start": position_start,
+                "position_period": position_period,
+                "initial_liquidity_range": initial_liquidity_range,
+                "dynamic_fee_multiplier": dynamic_fee_multiplier,
+                "position_shift": position_shift,
+            }
+        )
+
+    if use_threading:
+        pool = Pool(psutil.cpu_count(logical=False))
+        results = pool.map(simulator.single_run_kw, kwargs_list)
+    else:
+        results = []
+        for kw in kwargs_list:
+            try:
+                sr_result = simulator.single_run(**kw)
+                if simulator.log_enabled:
+                    logger.info(
+                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
+                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
+                    )
+                results.append(sr_result)
+            except Exception as e:
+                logger.warning(e)
+                results.append(0)
+
+    if not n_top_samples:
+        n_top_samples = samples // 20
+    return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples

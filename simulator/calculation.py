@@ -6,7 +6,7 @@ from numpy import log10, logspace
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
 from simulator.amm.price_history_loader import GenericPriceHistoryLoader
 from simulator.amm.price_oracle import EmaPriceOracle
-from simulator.amm.simulator import Simulator
+from simulator.amm.simulator import get_loss_rate
 from simulator.settings import BASE_DIR, Pair
 
 logger = logging.getLogger(__name__)
@@ -26,16 +26,10 @@ class Calculator:
         min_loan_duration: float | None = None,
         max_loan_duration: float | None = None,
         initial_liquidity_range: int = 4,
+        a_range: list | None = None,
     ):
         price_oracle = EmaPriceOracle(t_exp=t_exp)
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
-
-        simulator = Simulator(
-            initial_liquidity_class=ConstantInitialLiquidity,
-            price_history_loader=price_history_loader,
-            price_oracle=price_oracle,
-            external_fee=cls.EXTERNAL_FEE,
-        )
 
         losses = []
         discounts = []
@@ -49,10 +43,19 @@ class Calculator:
             "max_loan_duration": max_loan_duration,
         }
 
-        a_range = [int(a) for a in logspace(log10(30), log10(500), 30)]
+        if a_range is None:
+            a_range = [int(a) for a in logspace(log10(10), log10(500), 30)]
+
         for a in a_range:
-            kwargs_with_a = {**kwargs, "A": a}
-            loss = simulator.get_loss_rate(**kwargs_with_a)
+            kwargs_with_a = {
+                **kwargs,
+                "A": a,
+                "initial_liquidity_class": ConstantInitialLiquidity,
+                "price_history_loader": price_history_loader,
+                "price_oracle": price_oracle,
+                "external_fee": cls.EXTERNAL_FEE,
+            }
+            loss = get_loss_rate(**kwargs_with_a)
 
             # Simplified formula
             # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
@@ -95,13 +98,6 @@ class Calculator:
         price_oracle = EmaPriceOracle(t_exp=t_exp)
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
-        simulator = Simulator(
-            initial_liquidity_class=ConstantInitialLiquidity,
-            price_history_loader=price_history_loader,
-            price_oracle=price_oracle,
-            external_fee=cls.EXTERNAL_FEE,
-        )
-
         losses = []
         discounts = []
 
@@ -116,8 +112,15 @@ class Calculator:
 
         liquidity_range = list(range(4, 50, 4))
         for initial_liquidity_range in liquidity_range:
-            kwargs_with_a = {**kwargs, "initial_liquidity_range": initial_liquidity_range}
-            loss = simulator.get_loss_rate(**kwargs_with_a)
+            kwargs_with_a = {
+                **kwargs,
+                "initial_liquidity_range": initial_liquidity_range,
+                "initial_liquidity_class": ConstantInitialLiquidity,
+                "price_history_loader": price_history_loader,
+                "price_oracle": price_oracle,
+                "external_fee": cls.EXTERNAL_FEE,
+            }
+            loss = get_loss_rate(**kwargs_with_a)
 
             # Simplified formula
             # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
@@ -160,13 +163,6 @@ class Calculator:
         price_oracle = EmaPriceOracle(t_exp=t_exp)
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
-        simulator = Simulator(
-            initial_liquidity_class=ConstantInitialLiquidity,
-            price_history_loader=price_history_loader,
-            price_oracle=price_oracle,
-            external_fee=cls.EXTERNAL_FEE,
-        )
-
         losses = []
         discounts = []
 
@@ -181,8 +177,15 @@ class Calculator:
 
         d_fee_range = [d / 100 for d in range(10, 50, 3)]
         for d_fee in d_fee_range:
-            kwargs_with_a = {**kwargs, "dynamic_fee_multiplier": d_fee}
-            loss = simulator.get_loss_rate(**kwargs_with_a)
+            kwargs_with_a = {
+                **kwargs,
+                "dynamic_fee_multiplier": d_fee,
+                "initial_liquidity_class": ConstantInitialLiquidity,
+                "price_history_loader": price_history_loader,
+                "price_oracle": price_oracle,
+                "external_fee": cls.EXTERNAL_FEE,
+            }
+            loss = get_loss_rate(**kwargs_with_a)
 
             # Simplified formula
             # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
