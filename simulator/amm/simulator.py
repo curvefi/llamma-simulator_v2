@@ -7,7 +7,7 @@ import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
 from .lending_amm import LendingAMM
-from .price_history_loader import BasePriceHistoryLoader
+from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
 logger = logging.getLogger(__name__)
@@ -78,6 +78,25 @@ class Simulator:
 
         prices_for_simulation = self.prices[position_start_index:position_end_index]
         oracle_prices_for_simulation = self.oracle_prices[position_start_index:position_end_index]
+
+        return self.calculate_loss(
+            A,
+            prices_for_simulation,
+            oracle_prices_for_simulation,
+            initial_liquidity_range,
+            dynamic_fee_multiplier,
+            position_shift,
+        )
+
+    def calculate_loss(
+        self,
+        A: int,
+        prices_for_simulation: list,
+        oracle_prices_for_simulation: list,
+        initial_liquidity_range: int,  # p0 then n number of bands
+        dynamic_fee_multiplier: float | None = None,
+        position_shift: float = 0,  # [0, 1) how much lower from current prices
+    ):
         p0 = prices_for_simulation[0][1] * (1 - position_shift)
 
         initial_y0 = 1.0  # 1 ETH
@@ -167,6 +186,59 @@ class Simulator:
         return self.single_run(**kw)
 
 
+class SimulatorV2(Simulator):
+    def __init__(
+        self,
+        initial_liquidity_class: type[BaseRangeInitialLiquidity],
+        price_history_loader: VolatilityPriceHistoryLoader,
+        price_oracle: BasePriceOracle,
+        external_fee: float = 0.0,  # should be 0 < external_fee < 1
+    ):
+        """
+        Simulator for volatility adjusted price loader
+        :param initial_liquidity_class: initial liquidity for AMM (class, initialized in simulator), min=4 worst case
+        :param price_history_loader: load prices source
+        :param price_oracle: oracle prices calculater (can choose different oracles)
+        :param external_fee: fee paid by arbitragers to external platforms
+        """
+        super().__init__(initial_liquidity_class, price_history_loader, price_oracle, external_fee)
+
+    def single_run_v2(
+        self,
+        A: int,
+        position_start: float,  # [0, 1)
+        position_period: float,  # [0, 1 - position_start)
+        initial_liquidity_range: int,  # p0 then n number of bands
+        dynamic_fee_multiplier: float | None = None,
+        position_shift: float = 0,  # [0, 1) how much lower from current prices
+    ):
+        """
+        position: 0..1
+        size: fraction of all price data length for size
+        """
+        # Data for prices
+        position_start_index = int(position_start * len(self.prices))  # start of position in prices array
+        position_end_index = int(
+            (position_start + position_period) * len(self.prices)
+        )  # end of position in prices array
+
+        prices_for_simulation = self.prices[position_start_index:position_end_index]
+        prices_for_simulation = self.price_history_loader.change_period(prices_for_simulation)
+        oracle_prices_for_simulation = self.oracle_prices[position_start_index:position_end_index]
+
+        return self.calculate_loss(
+            A,
+            prices_for_simulation,
+            oracle_prices_for_simulation,
+            initial_liquidity_range,
+            dynamic_fee_multiplier,
+            position_shift,
+        )
+
+    def single_run_v2_kw(self, kw):
+        return self.single_run(**kw)
+
+
 def get_loss_rate(
     initial_liquidity_class: type[BaseRangeInitialLiquidity],
     price_history_loader: BasePriceHistoryLoader,
@@ -223,6 +295,77 @@ def get_loss_rate(
         for kw in kwargs_list:
             try:
                 sr_result = simulator.single_run(**kw)
+                if simulator.log_enabled:
+                    logger.info(
+                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
+                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
+                    )
+                results.append(sr_result)
+            except Exception as e:
+                logger.warning(e)
+                results.append(0)
+
+    if not n_top_samples:
+        n_top_samples = samples // 20
+    return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples
+
+
+def get_loss_rate_v2(
+    initial_liquidity_class: type[BaseRangeInitialLiquidity],
+    price_history_loader: VolatilityPriceHistoryLoader,
+    price_oracle: BasePriceOracle,
+    external_fee: float,
+    A: int,
+    initial_liquidity_range: int,
+    dynamic_fee_multiplier: float | None = None,
+    samples: int | None = None,
+    n_top_samples: int | None = None,
+    max_loan_duration: float | None = None,
+    min_loan_duration: float | None = None,
+    position_shift: float = 0,
+    use_threading: bool = True,
+):
+    simulator = SimulatorV2(
+        initial_liquidity_class=initial_liquidity_class,
+        price_history_loader=price_history_loader,
+        price_oracle=price_oracle,
+        external_fee=external_fee,
+    )
+
+    if not samples:
+        samples = simulator.samples
+    if not max_loan_duration:
+        max_loan_duration = simulator.max_loan_duration
+    if not min_loan_duration:
+        min_loan_duration = simulator.min_loan_duration
+
+    day_fraction = 86400 / (simulator.prices[-1][0] - simulator.prices[0][0])  # Which fraction of all data is 1 day
+
+    kwargs_list = []
+    for _ in range(samples):
+        position_start = random.random()
+        position_period = min_loan_duration * day_fraction
+        position_period += (max_loan_duration - min_loan_duration) * day_fraction * random.random()
+
+        kwargs_list.append(
+            {
+                "A": A,
+                "position_start": position_start,
+                "position_period": position_period,
+                "initial_liquidity_range": initial_liquidity_range,
+                "dynamic_fee_multiplier": dynamic_fee_multiplier,
+                "position_shift": position_shift,
+            }
+        )
+
+    if use_threading:
+        pool = Pool(psutil.cpu_count(logical=False))
+        results = pool.map(simulator.single_run_v2_kw, kwargs_list)
+    else:
+        results = []
+        for kw in kwargs_list:
+            try:
+                sr_result = simulator.single_run_v2(**kw)
                 if simulator.log_enabled:
                     logger.info(
                         f"Results A:{kw['A']}, position_start:{kw['position_start']}, "

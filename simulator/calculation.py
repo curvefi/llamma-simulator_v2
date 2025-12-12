@@ -6,7 +6,7 @@ from numpy import log10, logspace
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
 from simulator.amm.price_history_loader import GenericPriceHistoryLoader
 from simulator.amm.price_oracle import EmaPriceOracle
-from simulator.amm.simulator import get_loss_rate
+from simulator.amm.simulator import get_loss_rate, get_loss_rate_v2
 from simulator.settings import BASE_DIR, Pair
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class Calculator:
         max_loan_duration: float | None = None,
         initial_liquidity_range: int = 4,
         a_range: list | None = None,
+        is_v2: bool = False,
     ):
         price_oracle = EmaPriceOracle(t_exp=t_exp)
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
@@ -55,7 +56,10 @@ class Calculator:
                 "price_oracle": price_oracle,
                 "external_fee": cls.EXTERNAL_FEE,
             }
-            loss = get_loss_rate(**kwargs_with_a)
+            if is_v2:
+                loss = get_loss_rate_v2(**kwargs_with_a)
+            else:
+                loss = get_loss_rate(**kwargs_with_a)
 
             # Simplified formula
             # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
@@ -72,10 +76,11 @@ class Calculator:
 
         results = [(a_range, losses), (a_range, discounts)]
 
-        save_json_results(pair, f"losses_A__{samples}_{n_top_samples}", results)
+        name = "lossesV2" if is_v2 else "losses"
+        save_json_results(pair, f"{name}_A__{samples}_{n_top_samples}", results)
         save_plot(
             pair,
-            f"losses_A__{samples}_{n_top_samples}",
+            f"{name}_A__{samples}_{n_top_samples}",
             (a_range, losses),
             (a_range, discounts),
             {"xlabel": "A", "ylabel": "Loss"},
