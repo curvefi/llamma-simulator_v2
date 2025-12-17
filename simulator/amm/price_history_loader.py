@@ -79,6 +79,19 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
         return self.prices[position_start:position_end]
 
     def change_period(self, period: list) -> list:
+        """
+        :param period: period in days
+        :return: list of prices
+
+        we want to rescale the prices to have the max drawdown that we have for any period of same size
+
+        price_m = w_high - (w_high - price) * r  # r is some coefficient we try to find
+        max_drawdown = max_window_drawdown_modified = (w_high - w_low_m) / w_high =
+        = (w_high - (w_high - (w_high - w_low) * r)) / w_high = (w_high - w_low) * r / w_high
+
+        r = (w_high / (w_high - w_low)) * max_drawdown = max_drawdown / window_drawdown
+        """
+
         if self.max_drawdown is None:
             self.calculate_max_drawdown()
 

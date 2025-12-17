@@ -4,7 +4,7 @@ import logging
 from numpy import log10, logspace
 
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
-from simulator.amm.price_history_loader import GenericPriceHistoryLoader
+from simulator.amm.price_history_loader import GenericPriceHistoryLoader, VolatilityPriceHistoryLoader
 from simulator.amm.price_oracle import EmaPriceOracle
 from simulator.amm.simulator import get_loss_rate, get_loss_rate_v2
 from simulator.settings import BASE_DIR, Pair
@@ -30,7 +30,10 @@ class Calculator:
         is_v2: bool = False,
     ):
         price_oracle = EmaPriceOracle(t_exp=t_exp)
-        price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
+        if is_v2:
+            price_history_loader = VolatilityPriceHistoryLoader(pair=Pair(pair))
+        else:
+            price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
         losses = []
         discounts = []
