@@ -27,6 +27,8 @@ def calculate_a() -> None:
         n_top_samples=50,
         dynamic_fee_multiplier=0.25,
         initial_liquidity_range=4,
+        min_loan_duration=1/24/12,
+        max_loan_duration=1/24/12,
     )
     logger.info(f"Results: {results}")
 
