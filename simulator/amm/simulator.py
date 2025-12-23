@@ -223,8 +223,11 @@ class SimulatorV2(Simulator):
         )  # end of position in prices array
 
         prices_for_simulation = self.prices[position_start_index:position_end_index]
-        prices_for_simulation = self.price_history_loader.change_period(prices_for_simulation)
+        is_down, prices_for_simulation = self.price_history_loader.change_period(prices_for_simulation)
         oracle_prices_for_simulation = self.oracle_prices[position_start_index:position_end_index]
+
+        if not is_down:
+            return 0
 
         return self.calculate_loss(
             A,

@@ -52,6 +52,9 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
 
         self.max_drawdown = None
 
+        # used for checking if price in this period is down from open
+        self.drawdown_index = 0.9
+
     def calculate_max_drawdown(self):
         current_window = deque()
         max_drawdown = 0
@@ -78,7 +81,7 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
 
         return self.prices[position_start:position_end]
 
-    def change_period(self, period: list) -> list:
+    def change_period(self, period: list) -> tuple[bool, list]:
         """
         :param period: period in days
         :return: list of prices
@@ -111,7 +114,14 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
 
             result.append((t, open, high, low, close, volume))
 
-        return result
+        # we take into account periods in which prices go down
+        # otherwise we won't get significant losses
+        is_down = True
+        open = period[0][1]
+        if (open - window_low) / open < current_drawdown * self.drawdown_index:
+            is_down = False
 
-    def load_random_changed_period(self) -> list:
+        return is_down, result
+
+    def load_random_changed_period(self) -> tuple[bool, list]:
         return self.change_period(self.load_random_period())
