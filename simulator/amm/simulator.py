@@ -380,5 +380,7 @@ def get_loss_rate_v2(
                 results.append(0)
 
     if not n_top_samples:
-        n_top_samples = samples // 20
+        results = [r for r in results if r > 0]
+        n_top_samples = len(results) // 20
+
     return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples
