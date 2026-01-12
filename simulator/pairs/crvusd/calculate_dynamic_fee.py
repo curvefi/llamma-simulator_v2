@@ -25,6 +25,7 @@ def calculate_dynamic_fee() -> None:
         pair="CRVUSDT",
         a=100,
         t_exp=600,
+        fee=0.002,
         samples=500_000,
         n_top_samples=50,
         initial_liquidity_range=4,

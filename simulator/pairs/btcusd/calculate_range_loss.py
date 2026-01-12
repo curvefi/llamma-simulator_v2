@@ -24,6 +24,7 @@ def calculate_range_loss() -> None:
     results = Calculator.simulate_range(
         pair="BTCUSDT",
         a=60,
+        fee=0.002,
         t_exp=600,
         samples=500_000,
         n_top_samples=50,

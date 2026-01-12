@@ -24,6 +24,7 @@ def calculate_dynamic_fee() -> None:
     results = Calculator.simulate_dynamic_fee(
         pair="ETHUSDT",
         a=50,
+        fee=0.002,
         t_exp=600,
         samples=500_000,
         n_top_samples=50,
