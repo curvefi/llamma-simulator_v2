@@ -22,6 +22,7 @@ def calculate_a() -> None:
 
     results = Calculator.simulate_A(
         pair="BTCUSDT",
+        fee=0.002,
         t_exp=600,
         samples=2_000_000,
         n_top_samples=50,
