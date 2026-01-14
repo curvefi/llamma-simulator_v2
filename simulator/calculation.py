@@ -16,10 +16,89 @@ class Calculator:
     EXTERNAL_FEE = 5e-4  # fee paid by arbitragers to external platforms
 
     @classmethod
+    def simulate_fee(
+        cls,
+        pair: str,
+        a: int,
+        t_exp: int,
+        samples: int = 500000,
+        n_top_samples: int = 50,
+        dynamic_fee_multiplier: float | None = 0.25,
+        min_loan_duration: float | None = None,
+        max_loan_duration: float | None = None,
+        initial_liquidity_range: int = 4,
+        fee_range: list | None = None,
+        is_v2: bool = False,
+    ):
+        price_oracle = EmaPriceOracle(t_exp=t_exp)
+        if is_v2:
+            price_history_loader = VolatilityPriceHistoryLoader(pair=Pair(pair))
+        else:
+            price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
+
+        losses = []
+        discounts = []
+
+        kwargs = {
+            "samples": samples,
+            "n_top_samples": n_top_samples,
+            "A": a,
+            "initial_liquidity_range": initial_liquidity_range,
+            "dynamic_fee_multiplier": dynamic_fee_multiplier,
+            "min_loan_duration": min_loan_duration,
+            "max_loan_duration": max_loan_duration,
+        }
+
+        if fee_range is None:
+            fee_range = [a / 1000 for a in range(1, 50, 2)]
+
+        for fee in fee_range:
+            kwargs_with_fee = {
+                **kwargs,
+                "fee": fee,
+                "initial_liquidity_class": ConstantInitialLiquidity,
+                "price_history_loader": price_history_loader,
+                "price_oracle": price_oracle,
+                "external_fee": cls.EXTERNAL_FEE,
+            }
+            if is_v2:
+                loss = get_loss_rate_v2(**kwargs_with_fee)
+            else:
+                loss = get_loss_rate(**kwargs_with_fee)
+
+            # Simplified formula
+            # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
+            # More precise
+            bands_coefficient = (
+                sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
+            )
+            liquidation_discount = 1 - (1 - loss) * bands_coefficient
+
+            logger.info(f"Params: {kwargs_with_fee}, loss: {loss}, liquidation discount: {liquidation_discount}")
+
+            losses.append(loss)
+            discounts.append(liquidation_discount)
+
+        results = [(fee_range, losses), (fee_range, discounts)]
+
+        name = "lossesV2" if is_v2 else "losses"
+        save_json_results(pair, f"{name}_fee__{samples}_{n_top_samples}", results)
+        save_plot(
+            pair,
+            f"{name}_fee__{samples}_{n_top_samples}",
+            (fee_range, losses),
+            (fee_range, discounts),
+            {"xlabel": "fee", "ylabel": "Loss"},
+            kwargs,
+        )
+        return results
+
+    @classmethod
     def simulate_A(
         cls,
         pair: str,
         t_exp: int,
+        fee: float,
         samples: int = 500000,
         n_top_samples: int = 50,
         dynamic_fee_multiplier: float | None = 0.25,
@@ -54,6 +133,7 @@ class Calculator:
             kwargs_with_a = {
                 **kwargs,
                 "A": a,
+                "fee": fee,
                 "initial_liquidity_class": ConstantInitialLiquidity,
                 "price_history_loader": price_history_loader,
                 "price_oracle": price_oracle,
@@ -97,6 +177,7 @@ class Calculator:
         pair: str,
         t_exp: int,
         a: int,
+        fee: float,
         samples: int = 500000,
         n_top_samples: int = 50,
         dynamic_fee_multiplier: float | None = 0.25,
@@ -113,6 +194,7 @@ class Calculator:
             "samples": samples,
             "n_top_samples": n_top_samples,
             "A": a,
+            "fee": fee,
             "dynamic_fee_multiplier": dynamic_fee_multiplier,
             "min_loan_duration": min_loan_duration,
             "max_loan_duration": max_loan_duration,
@@ -162,6 +244,7 @@ class Calculator:
         pair: str,
         t_exp: int,
         a: int,
+        fee: float,
         samples: int = 500000,
         n_top_samples: int = 50,
         min_loan_duration: float | None = None,
@@ -178,6 +261,7 @@ class Calculator:
             "samples": samples,
             "n_top_samples": n_top_samples,
             "A": a,
+            "fee": fee,
             "initial_liquidity_range": initial_liquidity_range,
             "min_loan_duration": min_loan_duration,
             "max_loan_duration": max_loan_duration,
