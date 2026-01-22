@@ -3,7 +3,7 @@ from math import floor, log, sqrt
 
 
 class LendingAMM:
-    def __init__(self, p_base: float, A: int, dynamic_fee_multiplier: float | None = None):
+    def __init__(self, p_base: float, A: int, fee: float, dynamic_fee_multiplier: float | None = None):
         self.p_base = p_base
         self.p_oracle = p_base
         self.prev_p_oracle = p_base
@@ -12,6 +12,7 @@ class LendingAMM:
         self.bands_x = defaultdict(float)
         self.bands_y = defaultdict(float)
         self.active_band = 0
+        self.fee = fee
 
     # Deposit:
     # - above active band - only in y,
@@ -37,9 +38,11 @@ class LendingAMM:
         p_up = self.p_up(n_band)
 
         if p_oracle > p_up:
-            return ((p_oracle - p_up) / p_oracle) * self.dynamic_fee_multiplier
+            dynamic_fee = ((p_oracle - p_up) / p_oracle) * self.dynamic_fee_multiplier
         else:
-            return ((p_up - p_oracle) / p_up) * self.dynamic_fee_multiplier
+            dynamic_fee = ((p_up - p_oracle) / p_up) * self.dynamic_fee_multiplier
+
+        return max(self.fee, dynamic_fee)
 
     def p_down(self, n_band):
         """

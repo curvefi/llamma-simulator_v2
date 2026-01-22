@@ -25,6 +25,7 @@ def calculate_a() -> None:
     results = Calculator.simulate_A(
         pair="CRVUSDT",
         t_exp=600,
+        fee=0.002,
         samples=2_000_000,
         n_top_samples=50,
         dynamic_fee_multiplier=0.25,

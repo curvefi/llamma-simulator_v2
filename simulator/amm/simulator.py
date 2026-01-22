@@ -60,6 +60,7 @@ class Simulator:
     def single_run(
         self,
         A: int,
+        fee: float,
         position_start: float,  # [0, 1)
         position_period: float,  # [0, 1 - position_start)
         initial_liquidity_range: int,  # p0 then n number of bands
@@ -81,6 +82,7 @@ class Simulator:
 
         return self.calculate_loss(
             A,
+            fee,
             prices_for_simulation,
             oracle_prices_for_simulation,
             initial_liquidity_range,
@@ -91,6 +93,7 @@ class Simulator:
     def calculate_loss(
         self,
         A: int,
+        fee: float,
         prices_for_simulation: list,
         oracle_prices_for_simulation: list,
         initial_liquidity_range: int,  # p0 then n number of bands
@@ -102,7 +105,7 @@ class Simulator:
         initial_y0 = 1.0  # 1 ETH
         p_base = p0 * (A / (A - 1) + 1e-4)
         initial_x_value = initial_y0 * p_base
-        amm = LendingAMM(p_base, A, dynamic_fee_multiplier)
+        amm = LendingAMM(p_base, A, fee, dynamic_fee_multiplier)
 
         # Fill ticks with liquidity
         self.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
@@ -206,6 +209,7 @@ class SimulatorV2(Simulator):
     def single_run_v2(
         self,
         A: int,
+        fee: float,
         position_start: float,  # [0, 1)
         position_period: float,  # [0, 1 - position_start)
         initial_liquidity_range: int,  # p0 then n number of bands
@@ -231,6 +235,7 @@ class SimulatorV2(Simulator):
 
         return self.calculate_loss(
             A,
+            fee,
             prices_for_simulation,
             oracle_prices_for_simulation,
             initial_liquidity_range,
@@ -248,6 +253,7 @@ def get_loss_rate(
     price_oracle: BasePriceOracle,
     external_fee: float,
     A: int,
+    fee: float,
     initial_liquidity_range: int,
     dynamic_fee_multiplier: float | None = None,
     samples: int | None = None,
@@ -282,6 +288,7 @@ def get_loss_rate(
         kwargs_list.append(
             {
                 "A": A,
+                "fee": fee,
                 "position_start": position_start,
                 "position_period": position_period,
                 "initial_liquidity_range": initial_liquidity_range,
@@ -319,6 +326,7 @@ def get_loss_rate_v2(
     price_oracle: BasePriceOracle,
     external_fee: float,
     A: int,
+    fee: float,
     initial_liquidity_range: int,
     dynamic_fee_multiplier: float | None = None,
     samples: int | None = None,
@@ -353,6 +361,7 @@ def get_loss_rate_v2(
         kwargs_list.append(
             {
                 "A": A,
+                "fee": fee,
                 "position_start": position_start,
                 "position_period": position_period,
                 "initial_liquidity_range": initial_liquidity_range,

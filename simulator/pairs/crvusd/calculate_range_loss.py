@@ -25,6 +25,7 @@ def calculate_range_loss() -> None:
         pair="CRVUSDT",
         a=60,
         t_exp=600,
+        fee=0.002,
         samples=500_000,
         n_top_samples=50,
         dynamic_fee_multiplier=0.25,

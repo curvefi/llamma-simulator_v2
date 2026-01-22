@@ -4,6 +4,7 @@ import click
 
 from simulator.calculation import Calculator
 from simulator.import_data import BinanceImporter
+from simulator.import_data.onchain import OnchainImporter
 from simulator.logging import setup_logger
 from simulator.settings import Pair
 
@@ -22,6 +23,12 @@ def import_data(pair: str) -> None:
     BinanceImporter.run(Pair(pair))
 
 
+@simulator_commands.command("import_onchain_data", short_help="import price data")
+@click.argument("pair", type=click.STRING)
+def import_onchain_data(pair: str) -> None:
+    OnchainImporter.run(Pair(pair))
+
+
 # Change parameters before running
 @simulator_commands.command("calculate_A", short_help="import price data")
 def calculate_a() -> None:
@@ -38,6 +45,7 @@ def calculate_a() -> None:
 
     results = Calculator.simulate_A(
         pair="BTCUSDT",
+        fee=0.002,
         t_exp=600,
         samples=500_000,
         n_top_samples=50,

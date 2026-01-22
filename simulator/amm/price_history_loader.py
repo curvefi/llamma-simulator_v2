@@ -1,14 +1,10 @@
 import random
 from abc import ABC, abstractmethod
 from collections import deque
-from enum import StrEnum
 
 from simulator.import_data.binance import BinanceImporter
+from simulator.import_data.onchain import OnchainImporter
 from simulator.settings import Pair
-
-
-class ImporterType(StrEnum):
-    binance = "binance"
 
 
 class BasePriceHistoryLoader(ABC):
@@ -17,9 +13,11 @@ class BasePriceHistoryLoader(ABC):
 
 
 class GenericPriceHistoryLoader(BasePriceHistoryLoader):
-    def __init__(self, pair: Pair, importer_type: ImporterType = ImporterType.binance, add_reverse: bool = True):
-        if importer_type == ImporterType.binance:
+    def __init__(self, pair: Pair, add_reverse: bool = True):
+        if pair in [Pair.BTCUSDT, Pair.ETHUSDT, Pair.CRVUSDT]:
             self.importer = BinanceImporter()
+        elif pair in [Pair.WSTETH_ETH]:
+            self.importer = OnchainImporter()
         else:
             raise NotImplementedError("Unsupported importer type")
 
@@ -45,8 +43,8 @@ class GenericPriceHistoryLoader(BasePriceHistoryLoader):
 
 
 class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
-    def __init__(self, pair: Pair, importer_type: ImporterType = ImporterType.binance, period: float = 1 / 48):
-        super().__init__(pair, importer_type, False)
+    def __init__(self, pair: Pair, period: float = 1 / 48):
+        super().__init__(pair, False)
         self.prices = self.load_prices()
         self.period = period  # days
 
