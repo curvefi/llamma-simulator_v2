@@ -3,10 +3,19 @@ from math import floor, log, sqrt
 
 
 class LendingAMM:
+    PREV_P_O_DELAY = 2 * 60  # seconds
+    MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
+    MIN_PRICE_RATIO = 1 / MAX_P_O_CHANGE
+
     def __init__(self, p_base: float, A: int, fee: float, dynamic_fee_multiplier: float | None = None):
         self.p_base = p_base
         self.p_oracle = p_base
         self.prev_p_oracle = p_base
+        self.raw_p_oracle = p_base
+        self.old_p_oracle = p_base
+        self.old_dfee = 0.0
+        self.prev_p_oracle_time: float | None = None
+        self.current_timestamp: float | None = None
         self.A = A
         self.dynamic_fee_multiplier = dynamic_fee_multiplier if dynamic_fee_multiplier is not None else 0.25
         self.bands_x = defaultdict(float)
@@ -26,39 +35,98 @@ class LendingAMM:
     #  - collect fees separately for the protocol (wohoo), compensate traded bands
     #  - reduced_input *= (1 - fee), calc output for reduced_input, split fee * input across bands touched
 
-    def set_p_oracle(self, p):
+    def set_p_oracle(self, p, timestamp: float | None = None):
+        price, _ = self._limit_price_oracle(p, timestamp, write=True)
         self.prev_p_oracle = self.p_oracle
-        self.p_oracle = p
+        self.p_oracle = price
 
-    def dynamic_fee(self, n_band):
-        """
-        Dynamic fee equal to a quarter (by default) of difference between current price and the price of price oracle
-        """
-        p_oracle = self.p_oracle
-        p_up = self.p_up(n_band)
+    def dynamic_fee(self, n_band, timestamp: float | None = None):
+        """Replicates on-chain logic: max(base fee, oracle-memory fee, distance fee)."""
+        p_oracle, oracle_memory_fee = self._price_oracle_view(timestamp)
+        fee_with_memory = max(self.fee, oracle_memory_fee)
+        distance_fee = self._distance_fee(p_oracle, n_band)
+        return max(fee_with_memory, distance_fee)
 
-        if p_oracle > p_up:
-            dynamic_fee = ((p_oracle - p_up) / p_oracle) * self.dynamic_fee_multiplier
-        else:
-            dynamic_fee = ((p_up - p_oracle) / p_up) * self.dynamic_fee_multiplier
+    def _normalize_timestamp(self, timestamp: float | None) -> float | None:
+        if timestamp is None:
+            return self.current_timestamp if self.current_timestamp is not None else self.prev_p_oracle_time
+        self.current_timestamp = timestamp
+        return timestamp
 
-        return max(self.fee, dynamic_fee)
+    def _memory_dt(self, timestamp: float | None) -> float:
+        if self.prev_p_oracle_time is None or timestamp is None:
+            return self.PREV_P_O_DELAY
+        elapsed = max(timestamp - self.prev_p_oracle_time, 0)
+        return self.PREV_P_O_DELAY - min(self.PREV_P_O_DELAY, elapsed)
 
-    def p_down(self, n_band):
+    def _limit_price_oracle(self, price: float, timestamp: float | None, write: bool) -> tuple[float, float]:
+        timestamp = self._normalize_timestamp(timestamp)
+        old_price = self.old_p_oracle
+        old_dfee = self.old_dfee
+        dt = self._memory_dt(timestamp)
+        limited_price = price
+        ratio = 0.0
+
+        if dt > 0 and old_price > 0:
+            price_ratio = min(old_price, price) / max(old_price, price)
+            if price > old_price and price_ratio < self.MIN_PRICE_RATIO:
+                price_ratio = self.MIN_PRICE_RATIO
+                limited_price = old_price * self.MAX_P_O_CHANGE
+            elif price < old_price and price_ratio < self.MIN_PRICE_RATIO:
+                price_ratio = self.MIN_PRICE_RATIO
+                limited_price = old_price / self.MAX_P_O_CHANGE
+
+            ratio = ((1.0 + old_dfee) - price_ratio**3) * (dt / self.PREV_P_O_DELAY)
+            ratio = min(max(ratio, 0.0), 1.0 - 1e-18)
+
+        if write:
+            self.raw_p_oracle = price
+            self.old_p_oracle = limited_price
+            self.old_dfee = ratio
+            if timestamp is not None:
+                self.prev_p_oracle_time = timestamp
+
+        return limited_price, ratio
+
+    def _price_oracle_view(self, timestamp: float | None) -> tuple[float, float]:
+        price = self.raw_p_oracle if self.raw_p_oracle is not None else self.p_oracle
+        return self._limit_price_oracle(price, timestamp, write=False)
+
+    def _distance_fee(self, p_oracle: float, n_band: int) -> float:
+        p_o_up = self.p_top(n_band)
+        if p_o_up <= 0:
+            return 0.0
+
+        # Matches on-chain: p_c_d = p_o**3 / p_o_up**2, p_c_u = p_c_d * (A / (A-1))**2
+        p_c_d = (p_oracle**3) / (p_o_up**2)
+        band_ratio = self.A / (self.A - 1)
+        p_c_u = p_c_d * band_ratio**2
+
+        if p_oracle < p_c_d and p_c_d > 0:
+            return (p_c_d - p_oracle) / p_c_d * self.dynamic_fee_multiplier
+        if p_oracle > p_c_u and p_oracle > 0:
+            return (p_oracle - p_c_u) / p_oracle * self.dynamic_fee_multiplier
+        return 0.0
+
+    def p_down(self, n_band, p_oracle: float | None = None):
         """
         Lower price for the band at the current p_oracle
         """
+        if p_oracle is None:
+            p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
         p_base = self.p_base * k**n_band
-        return self.p_oracle**3 / p_base**2
+        return p_oracle**3 / p_base**2
 
-    def p_up(self, n_band):
+    def p_up(self, n_band, p_oracle: float | None = None):
         """
         Upper price for the band at the current p_oracle
         """
+        if p_oracle is None:
+            p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
         p_base = self.p_base * k ** (n_band + 1)
-        return self.p_oracle**3 / p_base**2
+        return p_oracle**3 / p_base**2
 
     def p_top(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)

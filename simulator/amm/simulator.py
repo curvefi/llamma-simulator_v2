@@ -142,7 +142,7 @@ class Simulator:
 
         # <----------------- Calculation ----------------->
         for (t, open, high, low, close, vol), oracle_price in zip(prices_for_simulation, oracle_prices_for_simulation):
-            amm.set_p_oracle(oracle_price)
+            amm.set_p_oracle(oracle_price, timestamp=t)
 
             high = find_target_price(high * (1 - self.external_fee), is_up=True)
             low = find_target_price(low * (1 + self.external_fee), is_up=False)
