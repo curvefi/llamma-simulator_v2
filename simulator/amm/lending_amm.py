@@ -1,5 +1,6 @@
 from collections import defaultdict
 from math import floor, log, sqrt
+import warnings
 
 
 class LendingAMM:
@@ -49,7 +50,8 @@ class LendingAMM:
 
     def _normalize_timestamp(self, timestamp: float | None) -> float | None:
         if timestamp is None:
-            return self.current_timestamp if self.current_timestamp is not None else self.prev_p_oracle_time
+            warnings.warn("Timestamp not provided. Oracle memory decay disabled; fee memory pinned at max.")
+            return self.prev_p_oracle_time
         self.current_timestamp = timestamp
         return timestamp
 
@@ -262,7 +264,7 @@ class LendingAMM:
             # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
             price = original_price
 
-            fee = self.dynamic_fee(n)
+            fee = self.dynamic_fee(n, timestamp=self.current_timestamp)
             p_c_d = self.p_down(n)
             p_c_u = self.p_up(n)
 

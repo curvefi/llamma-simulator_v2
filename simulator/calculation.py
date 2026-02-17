@@ -115,7 +115,7 @@ class Calculator:
             price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
         losses = []
-        discounts = []
+        borrowed_adjusted_losses = []
 
         kwargs = {
             "samples": samples,
@@ -150,14 +150,14 @@ class Calculator:
             bands_coefficient = (
                 sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
             )
-            liquidation_discount = 1 - (1 - loss) * bands_coefficient
+            borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
-            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, liquidation discount: {liquidation_discount}")
+            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")
 
             losses.append(loss)
-            discounts.append(liquidation_discount)
+            borrowed_adjusted_losses.append(borrowed_adjusted_loss)
 
-        results = [(a_range, losses), (a_range, discounts)]
+        results = [(a_range, losses), (a_range, borrowed_adjusted_losses)]
 
         name = "lossesV2" if is_v2 else "losses"
         save_json_results(pair, f"{name}_A__{samples}_{n_top_samples}", results)
@@ -165,7 +165,7 @@ class Calculator:
             pair,
             f"{name}_A__{samples}_{n_top_samples}",
             (a_range, losses),
-            (a_range, discounts),
+            (a_range, borrowed_adjusted_losses),
             {"xlabel": "A", "ylabel": "Loss"},
             kwargs,
         )
@@ -188,7 +188,7 @@ class Calculator:
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
         losses = []
-        discounts = []
+        borrowed_adjusted_losses = []
 
         kwargs = {
             "samples": samples,
@@ -218,21 +218,21 @@ class Calculator:
             bands_coefficient = (
                 sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
             )
-            liquidation_discount = 1 - (1 - loss) * bands_coefficient
+            borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
-            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, liquidation discount: {liquidation_discount}")
+            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")
 
             losses.append(loss)
-            discounts.append(liquidation_discount)
+            borrowed_adjusted_losses.append(borrowed_adjusted_loss)
 
-        results = [(liquidity_range, losses), (liquidity_range, discounts)]
+        results = [(liquidity_range, losses), (liquidity_range, borrowed_adjusted_losses)]
 
         save_json_results(pair, f"losses_initial_range__{samples}_{n_top_samples}", results)
         save_plot(
             pair,
             f"losses_range__{samples}_{n_top_samples}",
             (liquidity_range, losses),
-            (liquidity_range, discounts),
+            (liquidity_range, borrowed_adjusted_losses),
             {"xlabel": "Initial range N", "ylabel": "Loss"},
             kwargs,
         )
@@ -255,7 +255,7 @@ class Calculator:
         price_history_loader = GenericPriceHistoryLoader(pair=Pair(pair))
 
         losses = []
-        discounts = []
+        borrowed_adjusted_losses = []
 
         kwargs = {
             "samples": samples,
@@ -285,21 +285,21 @@ class Calculator:
             bands_coefficient = (
                 sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
             )
-            liquidation_discount = 1 - (1 - loss) * bands_coefficient
+            borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
-            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, liquidation discount: {liquidation_discount}")
+            logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")
 
             losses.append(loss)
-            discounts.append(liquidation_discount)
+            borrowed_adjusted_losses.append(borrowed_adjusted_loss)
 
-        results = [(d_fee_range, losses), (d_fee_range, discounts)]
+        results = [(d_fee_range, losses), (d_fee_range, borrowed_adjusted_losses)]
 
         save_json_results(pair, f"losses_dynamic_fee__{samples}_{n_top_samples}", results)
         save_plot(
             pair,
             f"losses_dynamic_fee__{samples}_{n_top_samples}",
             (d_fee_range, losses),
-            (d_fee_range, discounts),
+            (d_fee_range, borrowed_adjusted_losses),
             {"xlabel": "Dynamic fee", "ylabel": "Loss"},
             kwargs,
         )
@@ -310,24 +310,25 @@ def save_plot(
     pair: str,
     file_name: str,
     losses: tuple,
-    discounts: tuple,
+    borrowed_losses: tuple,
     plot_kwargs: dict,
     capture_kwargs: dict,
 ):
     import matplotlib.pyplot as plt
 
     plt.plot(losses[0], losses[1], label="Loss")
-    plt.plot(discounts[0], discounts[1], label="Liquidation Discount")
+    plt.plot(borrowed_losses[0], borrowed_losses[1], label="Borrowed loss")
 
     # Min liquidation discount
-    min_discount = min(discounts[1])
-    min_discount_index = discounts[1].index(min_discount)
-    min_discount_A = discounts[0][min_discount_index]
+    min_discount = min(borrowed_losses[1])
+    min_discount_index = borrowed_losses[1].index(min_discount)
+    min_discount_A = borrowed_losses[0][min_discount_index]
+    min_discount_loss = losses[1][min_discount_index]
     plt.axvline(x=min_discount_A, color="black", linestyle="--", linewidth=2)
     plt.text(
         min_discount_A * 1.05,
-        max(discounts[1]) * 0.4,
-        f"{plot_kwargs.get('xlabel', 'x')} = {min_discount_A}, Discount={min_discount:.3f}",
+        max(borrowed_losses[1]) * 0.2,
+        f"{plot_kwargs.get('xlabel', 'x')} = {min_discount_A}, Borrowed loss={min_discount:.3f}, loss={min_discount_loss:.3f}",
         rotation=90,
         color="black",
         va="bottom",
@@ -335,8 +336,8 @@ def save_plot(
 
     # Caption text for parameters
     plt.text(
-        max(discounts[0]) * 15 / 100,
-        max(discounts[1]),  # (x, y) position on chart
+        max(borrowed_losses[0]) * 15 / 100,
+        max(borrowed_losses[1]),  # (x, y) position on chart
         "\n".join(f"{k}: {capture_kwargs[k]}" for k in capture_kwargs if capture_kwargs[k] is not None),
         color="black",
         bbox=dict(

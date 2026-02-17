@@ -114,12 +114,12 @@ class Simulator:
         xs_normalized = []
         fees = []
 
-        def find_target_price(p, is_up=True):
+        def find_target_price(p, timestamp, is_up=True):
             # Find target band
             if is_up:
                 for n in range(amm.max_band, amm.min_band - 1, -1):
                     p_down = amm.p_down(n)
-                    d_fee = amm.dynamic_fee(n)
+                    d_fee = amm.dynamic_fee(n, timestamp=timestamp)
                     p_down_with_fee = p_down * (1 + d_fee)
 
                     if p > p_down_with_fee:
@@ -128,7 +128,7 @@ class Simulator:
             else:
                 for n in range(amm.min_band, amm.max_band + 1):
                     p_up = amm.p_up(n)
-                    d_fee = amm.dynamic_fee(n)
+                    d_fee = amm.dynamic_fee(n, timestamp=timestamp)
                     p_up_ = p_up * (1 - d_fee)
 
                     if p < p_up_:
@@ -136,16 +136,16 @@ class Simulator:
 
             # price is outside of liquidity
             if is_up:
-                return p * (1 - amm.dynamic_fee(amm.min_band))
+                return p * (1 - amm.dynamic_fee(amm.min_band, timestamp=timestamp))
             else:
-                return p * (1 + amm.dynamic_fee(amm.max_band))
+                return p * (1 + amm.dynamic_fee(amm.max_band, timestamp=timestamp))
 
         # <----------------- Calculation ----------------->
         for (t, open, high, low, close, vol), oracle_price in zip(prices_for_simulation, oracle_prices_for_simulation):
             amm.set_p_oracle(oracle_price, timestamp=t)
 
-            high = find_target_price(high * (1 - self.external_fee), is_up=True)
-            low = find_target_price(low * (1 + self.external_fee), is_up=False)
+            high = find_target_price(high * (1 - self.external_fee), t, is_up=True)
+            low = find_target_price(low * (1 + self.external_fee), t, is_up=False)
 
             if high > amm.get_p():
                 amm.trade_to_price(high)
@@ -168,7 +168,7 @@ class Simulator:
             #         assert amm.bands_y[n] > 0
 
             d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
-            fees.append(amm.dynamic_fee(amm.active_band))
+            fees.append(amm.dynamic_fee(amm.active_band, timestamp=t))
             if self.log_enabled:
                 current_x_total_normalized = amm.get_all_x() / initial_x_value
                 logger.info(
