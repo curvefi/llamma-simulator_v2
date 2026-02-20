@@ -22,14 +22,11 @@ def calculate_a() -> None:
 
     results = Calculator.simulate_A(
         pair="BTCUSDT",
-        fee=0.002,
         t_exp=600,
         samples=2_000_000,
-        n_top_samples=50,
+        n_top_samples=1000,
         dynamic_fee_multiplier=0.25,
         initial_liquidity_range=4,
-        min_loan_duration=1/24/12,
-        max_loan_duration=1/24/12,
     )
     logger.info(f"Results: {results}")
 
