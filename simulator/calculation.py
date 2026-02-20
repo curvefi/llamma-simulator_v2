@@ -230,7 +230,7 @@ class Calculator:
         save_json_results(pair, f"losses_initial_range__{samples}_{n_top_samples}", results)
         save_plot(
             pair,
-            f"losses_range__{samples}_{n_top_samples}",
+            f"losses_initial_range__{samples}_{n_top_samples}",
             (liquidity_range, losses),
             (liquidity_range, borrowed_adjusted_losses),
             {"xlabel": "Initial range N", "ylabel": "Loss"},
@@ -316,6 +316,7 @@ def save_plot(
 ):
     import matplotlib.pyplot as plt
 
+    plt.figure()
     plt.plot(losses[0], losses[1], label="Loss")
     plt.plot(borrowed_losses[0], borrowed_losses[1], label="Borrowed loss")
 
@@ -355,6 +356,7 @@ def save_plot(
     path = BASE_DIR / "results" / pair / f"{file_name}.png"
     path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(path, dpi=300, bbox_inches="tight")
+    plt.close()
 
 
 def save_json_results(pair, file_name, results):
