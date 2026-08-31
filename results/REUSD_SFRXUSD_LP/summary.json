@@ -1,0 +1,522 @@
+{
+  "schema": 1,
+  "history": {
+    "block_step": 5,
+    "chain_id": 1,
+    "contracts": {
+      "bridge_pool": "0xc522a6606bba746d7960404f22a3db936b6f4f50",
+      "crvusd_aggregator": "0x18672b1b0c623a30089a280ed9256379fb0e4e62",
+      "lp_pool": "0xed785af60bed688baa8990cd5c4166221599a441"
+    },
+    "end_block_requested": 25870305,
+    "extension": {
+      "base_history": "reusd-sfrxusd-lp-history.jsonl.gz",
+      "base_record_count": 744450,
+      "fetched_record_count": 11880
+    },
+    "first_block": 22088660,
+    "first_timestamp": 1742480747,
+    "last_block": 25870305,
+    "last_timestamp": 1788119591,
+    "pin": {
+      "block_hash": "0x9667d83b47fc3a5dbffd2ad99db063cda226b43e7cd6423c139332ac0938f48b",
+      "block_number": 25870305,
+      "block_timestamp": 1788119591,
+      "observed_at_utc": "2026-08-30T20:09:33.418660+00:00"
+    },
+    "record_count": 756330,
+    "runtime_code_sha256": {
+      "bridge_pool": "e2713804c3d152d2df52a36828f5fea4a781eed47fd74c89dea4a2d7551ecc1c",
+      "crvusd_aggregator": "bd3ef50b917679b6e8d986f3378824494089b0fb175d89b7802a60385098446a",
+      "lp_pool": "e976243b5b68a4ea2bdc05fb0b5856a125fe723b79a358a2e2f4950769ebf765"
+    },
+    "schema": 2,
+    "start_block_requested": 22088660
+  },
+  "history_sha256": "8919bdf19dc98752e066a0d1bbe56bab6c3106e27073434cb134a8dadbff5ab4",
+  "series": {
+    "observations": 756330,
+    "candles": 152130,
+    "first_timestamp": 1742480700,
+    "last_timestamp": 1788119400,
+    "max_candle_gap_seconds": 300,
+    "spot_min": 0.9764406696143347,
+    "spot_max": 1.020599557624698,
+    "oracle_min": 0.9704543876806953,
+    "oracle_max": 1.0204695532674664,
+    "max_spot_oracle_gap": 0.0315586819879764
+  },
+  "method": {
+    "engine": "unmodified simulator.amm.lending_amm.LendingAMM",
+    "search_order": "A at fixed 0.20% fee, then fee at selected A",
+    "candle_seconds": 300,
+    "loan_days": 1,
+    "bands": 4,
+    "dynamic_fee_multiplier": 0.25,
+    "base_external_fee": 0.0005,
+    "calibration_windows": 1464,
+    "dense_hourly_windows": 12654,
+    "seed": 20260830
+  },
+  "a_sweep_at_0_20_percent_fee": [
+    {
+      "A": 60,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.004448927561017113,
+      "required_liquidation_discount": 0.0371874590611494,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 70,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.005176321937399253,
+      "required_liquidation_discount": 0.03327175004012595,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 80,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.0059050398928405246,
+      "required_liquidation_discount": 0.030506219139630364,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 90,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.005907058396959597,
+      "required_liquidation_discount": 0.02779943187474121,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 100,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.006298724328803296,
+      "required_liquidation_discount": 0.02601189390480052,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 110,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.006689116280896079,
+      "required_liquidation_discount": 0.02461638103747632,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 120,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.007304163950591636,
+      "required_liquidation_discount": 0.023737430369973667,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 130,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.00796148239394423,
+      "required_liquidation_discount": 0.02312850713904724,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 140,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.008652608962866348,
+      "required_liquidation_discount": 0.02273274941551573,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 145,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.009008860060966017,
+      "required_liquidation_discount": 0.02260131375494101,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 150,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.010149723079616035,
+      "required_liquidation_discount": 0.023276420783900242,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 155,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.010518481326630136,
+      "required_liquidation_discount": 0.02321922434071577,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 160,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.010892167296060906,
+      "required_liquidation_discount": 0.023193380883038683,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 165,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011270383380022508,
+      "required_liquidation_discount": 0.023196107202224536,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 170,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011652780286801723,
+      "required_liquidation_discount": 0.023224947145960573,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 175,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011123980569619496,
+      "required_liquidation_discount": 0.022373065082379573,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 180,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011503081672876392,
+      "required_liquidation_discount": 0.02243690925676467,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 185,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011885904730122632,
+      "required_liquidation_discount": 0.022521401194386947,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 190,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012272202250017794,
+      "required_liquidation_discount": 0.022624965493285187,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 195,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012445835534783734,
+      "required_liquidation_discount": 0.022532476230157417,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 200,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012557473305105926,
+      "required_liquidation_discount": 0.02239186082960487,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 205,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012667633045589599,
+      "required_liquidation_discount": 0.022262037905312226,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012844342726098024,
+      "required_liquidation_discount": 0.022209516985759792,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 215,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.013156628180161278,
+      "required_liquidation_discount": 0.02230193693011362,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 220,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.01347476897535238,
+      "required_liquidation_discount": 0.022410116075853193,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 225,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.013798423474175037,
+      "required_liquidation_discount": 0.022533057948412094,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 230,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.014127280937814679,
+      "required_liquidation_discount": 0.022669853444107657,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 250,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.01547638952977104,
+      "required_liquidation_discount": 0.023327020166821755,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 285,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.01711276713753218,
+      "required_liquidation_discount": 0.023990584136866167,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 325,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.020579513895358947,
+      "required_liquidation_discount": 0.026591666706454187,
+      "max_window_start_timestamp": 1742480700
+    }
+  ],
+  "fee_sweep_at_selected_a": [
+    {
+      "A": 210,
+      "fee": 0.0005,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.013209613039666834,
+      "required_liquidation_discount": 0.02257132196930367,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.001,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.013087856268486853,
+      "required_liquidation_discount": 0.02245072030813189,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.0015,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.01296609949728511,
+      "required_liquidation_discount": 0.022330118646938568,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012844342726098024,
+      "required_liquidation_discount": 0.022209516985759792,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.0025,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.01267994706377884,
+      "required_liquidation_discount": 0.022046680949841746,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.003,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012435670458380454,
+      "required_liquidation_discount": 0.021804721803660887,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.004,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011948387129312232,
+      "required_liquidation_discount": 0.0213220613456232,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.005,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011583197016998947,
+      "required_liquidation_discount": 0.020960335802463148,
+      "max_window_start_timestamp": 1742480700
+    }
+  ],
+  "dense_a_check_at_0_20_percent_fee": [
+    {
+      "A": 205,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 12654,
+      "raw_loss_max": 0.012667633045589599,
+      "required_liquidation_discount": 0.022262037905312226,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 12654,
+      "raw_loss_max": 0.012844342726098024,
+      "required_liquidation_discount": 0.022209516985759792,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 215,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 12654,
+      "raw_loss_max": 0.013156628180161278,
+      "required_liquidation_discount": 0.02230193693011362,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 285,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 12654,
+      "raw_loss_max": 0.01711276713753218,
+      "required_liquidation_discount": 0.023990584136866167,
+      "max_window_start_timestamp": 1742480700
+    }
+  ],
+  "external_fee_sensitivity": [
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0,
+      "windows": 1464,
+      "raw_loss_max": 0.012823615651800013,
+      "required_liquidation_discount": 0.022188986549814826,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.012844342726098024,
+      "required_liquidation_discount": 0.022209516985759792,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.001,
+      "windows": 1464,
+      "raw_loss_max": 0.012942606451342153,
+      "required_liquidation_discount": 0.022306848480201702,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.002,
+      "windows": 1464,
+      "raw_loss_max": 0.013274678963743125,
+      "required_liquidation_discount": 0.022635770611077133,
+      "max_window_start_timestamp": 1742480700
+    },
+    {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.005,
+      "windows": 1464,
+      "raw_loss_max": 0.014061147689700126,
+      "required_liquidation_discount": 0.02341477808549386,
+      "max_window_start_timestamp": 1742480700
+    }
+  ],
+  "conclusions": {
+    "selected_a_at_0_20_percent_fee": 210,
+    "candidate": {
+      "A": 210,
+      "fee": 0.002,
+      "external_fee": 0.0005,
+      "windows": 12654,
+      "raw_loss_max": 0.012844342726098024,
+      "required_liquidation_discount": 0.022209516985759792,
+      "max_window_start_timestamp": 1742480700
+    },
+    "loss_only_fee_minimum": {
+      "A": 210,
+      "fee": 0.005,
+      "external_fee": 0.0005,
+      "windows": 1464,
+      "raw_loss_max": 0.011583197016998947,
+      "required_liquidation_discount": 0.020960335802463148,
+      "max_window_start_timestamp": 1742480700
+    },
+    "fee_status": "0.20% is a provisional economic constraint, not the simulated optimum. The loss-only minimum is the 0.50% upper search boundary. This model does not measure arbitrage responsiveness, time out of equilibrium, hard liquidation, or final bad debt, so it cannot resolve the fee choice.",
+    "external_fee_adjusted_discount_envelope": 0.02341477808549386,
+    "conditional_liquidation_discount": 0.025,
+    "not_determined": [
+      "loan discount",
+      "borrow cap",
+      "vault supply limit",
+      "oracle EMA time"
+    ]
+  }
+}
