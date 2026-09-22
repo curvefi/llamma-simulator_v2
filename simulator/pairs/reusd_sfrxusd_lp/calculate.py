@@ -28,8 +28,8 @@ A_PRECISION = 10**4
 
 @dataclass(frozen=True)
 class Config:
-    a_values: tuple = (100, 200, 300, 500, 750, 1000, 1500, 2000)
-    fees: tuple = (0.001, 0.002, 0.003, 0.004, 0.005)
+    a_values: tuple = (25, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1500, 2000)
+    fees: tuple = (0.0005, 0.001, 0.002, 0.003, 0.004, 0.005, 0.0075, 0.01)
     base_fee: float = 0.002
     bands: int = 4
     dynamic_fee_multiplier: float = 0.25
@@ -237,6 +237,12 @@ def evaluate(mapper, points, starts, A, fee, config):
     }
 
 
+def contract_valid(A, fee):
+    # LendFactory A bounds and AMM MIN_FEE / MAX_FEE (MIN_TICKS = 4).
+    fee_wad = int(Decimal(str(fee)) * WAD)
+    return 2 <= A <= 10000 and 10**6 <= fee_wad <= min(4 * WAD // A, WAD // 10)
+
+
 def run(points, config, workers, starts=None, exact=False):
     starts = window_starts(points, config) if starts is None else starts
     init_worker(points, config)
@@ -246,6 +252,8 @@ def run(points, config, workers, starts=None, exact=False):
     try:
 
         def assess(A, fee):
+            if not contract_valid(A, fee):
+                raise ValueError(f"A={A}, fee={fee} violates the deployment bounds")
             if (A, fee) not in results:
                 results[A, fee] = evaluate(mapper, points, starts, A, fee, config)
                 print(json.dumps(results[A, fee]), flush=True)
@@ -257,25 +265,39 @@ def run(points, config, workers, starts=None, exact=False):
                     assess(A, fee)
             selection = {}
         else:
-            coarse = [assess(A, config.base_fee) for A in config.a_values]
-            selected = min(coarse, key=lambda r: r["band_adjusted_loss"])["A"]
-            # Refine the interval between the neighboring coarse samples.
-            index = config.a_values.index(selected)
-            lower = config.a_values[max(0, index - 1)]
-            upper = config.a_values[min(len(config.a_values) - 1, index + 1)]
-            step = max(5, (upper - lower) // 100 * 5)
-            nearby = [assess(A, config.base_fee) for A in range(lower, upper + 1, step)]
-            fine = min(coarse + nearby, key=lambda r: r["band_adjusted_loss"])["A"]
-            nearby += [
-                assess(A, config.base_fee) for A in range(max(lower, fine - step), min(upper, fine + step) + 1, 5)
-            ]
-            selected = min(coarse + nearby, key=lambda r: r["band_adjusted_loss"])["A"]
-            for fee in config.fees:
-                assess(selected, fee)
+            # Search A independently at every fee; a winner at one fee need not
+            # be competitive at another. Every case uses the same loan starts.
+            best_by_fee, bounds, excluded = [], [], []
+            for fee in sorted(set((*config.fees, config.base_fee))):
+                eligible = [A for A in config.a_values if contract_valid(A, fee)]
+                excluded.extend({"A": A, "fee": fee} for A in config.a_values if A not in eligible)
+                if not eligible:
+                    raise ValueError(f"no deployable A in the supplied range at fee={fee}")
+                maximum_A = min(config.a_values[-1], 10000, 4 * WAD // int(Decimal(str(fee)) * WAD))
+                eligible = sorted(set([*eligible, maximum_A]))
+                bounds.append({"fee": fee, "minimum_A": eligible[0], "maximum_A": eligible[-1]})
+                coarse = [assess(A, fee) for A in eligible]
+                selected = min(coarse, key=lambda r: r["band_adjusted_loss"])["A"]
+                index = eligible.index(selected)
+                lower = eligible[max(0, index - 1)]
+                upper = eligible[min(len(eligible) - 1, index + 1)]
+                step = max(5, (upper - lower) // 100 * 5)
+                nearby = [assess(A, fee) for A in range(lower, upper + 1, step)]
+                fine = min(coarse + nearby, key=lambda r: r["band_adjusted_loss"])["A"]
+                nearby += [assess(A, fee) for A in range(max(lower, fine - step), min(upper, fine + step) + 1, 5)]
+                best = min(coarse + nearby, key=lambda r: r["band_adjusted_loss"])
+                best_by_fee.append(best)
+            best = min(best_by_fee, key=lambda r: r["band_adjusted_loss"])
             selection = {
-                "lowest_loss_A_at_base_fee": selected,
-                "coarse_minimum_at_boundary": min(coarse, key=lambda r: r["band_adjusted_loss"])
-                in (coarse[0], coarse[-1]),
+                "lowest_loss_A_at_base_fee": next(r["A"] for r in best_by_fee if r["fee"] == config.base_fee),
+                "best_by_fee": best_by_fee,
+                "best_tested": best,
+                "A_boundary_fees": [
+                    r["fee"] for r, b in zip(best_by_fee, bounds) if r["A"] in (b["minimum_A"], b["maximum_A"])
+                ],
+                "deployment_bounds_by_fee": bounds,
+                "excluded_undeployable_combinations": excluded,
+                "fee_minimum_at_boundary": best["fee"] in (best_by_fee[0]["fee"], best_by_fee[-1]["fee"]),
             }
         return {
             **selection,
@@ -298,6 +320,8 @@ def main():
     parser.add_argument("--fees", default=",".join(map(str, Config.fees)))
     parser.add_argument("--base-fee", type=float, default=Config.base_fee)
     parser.add_argument("--external-fee", type=float, default=Config.external_fee)
+    parser.add_argument("--loan-seconds", type=int, default=Config.loan_seconds)
+    parser.add_argument("--bands", type=int, default=Config.bands)
     parser.add_argument("--oracle-update-seconds", type=int, default=Config.oracle_update_seconds)
     parser.add_argument("--warmup-seconds", type=int, default=Config.warmup_seconds)
     parser.add_argument("--initial-vp-scale", type=float, default=Config.initial_vp_scale)
@@ -310,6 +334,8 @@ def main():
         fees=tuple(sorted(set(map(float, args.fees.split(","))))),
         base_fee=args.base_fee,
         external_fee=args.external_fee,
+        loan_seconds=args.loan_seconds,
+        bands=args.bands,
         oracle_update_seconds=args.oracle_update_seconds,
         warmup_seconds=args.warmup_seconds,
         initial_vp_scale=args.initial_vp_scale,
@@ -318,6 +344,7 @@ def main():
     if (
         args.workers < 1
         or min(config.a_values) < 2
+        or max(config.a_values) > 10000
         or not all(0 <= f < 1 for f in (*config.fees, config.base_fee, config.external_fee))
     ):
         parser.error("invalid workers, amplification or fees")
@@ -327,6 +354,8 @@ def main():
         or not math.isfinite(config.initial_vp_scale)
         or config.initial_vp_scale <= 0
         or config.window_step_seconds <= 0
+        or config.loan_seconds <= 0
+        or not 1 <= config.bands <= 50
     ):
         parser.error("invalid EMA configuration")
     metadata, rows = read_history(args.history)
@@ -346,7 +375,7 @@ def main():
     output = {
         "schema": 3,
         "python_version": platform.python_version(),
-        "mode": "exact" if args.exact else "coarse A, neighboring A, then fee sweep",
+        "mode": "exact" if args.exact else "joint coarse A/fee grid, then independent A refinement at every fee",
         "units": {
             "spot": "crvUSD per LP",
             "oracle": "USD per LP, supplied directly as the LLAMMA oracle number",

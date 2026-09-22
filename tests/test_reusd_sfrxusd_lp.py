@@ -11,11 +11,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from simulator.pairs.reusd_sfrxusd_lp.calculate import (
     WAD,
     Config,
     VirtualPriceEMA,
+    contract_valid,
     feed_value,
     portfolio_value,
     reconstruct,
@@ -44,6 +46,28 @@ def observation(timestamp=0, block=1, **changes):
 
 
 class ReplayTests(unittest.TestCase):
+    def test_deployment_fee_limit_depends_on_A(self):
+        self.assertTrue(contract_valid(1000, 0.004))
+        self.assertFalse(contract_valid(1000, 0.004001))
+        self.assertFalse(contract_valid(10001, 0.0001))
+        self.assertFalse(contract_valid(100, 0))
+        with self.assertRaisesRegex(ValueError, "deployment bounds"):
+            run([(0, 1, 1.0, 1.0)], Config(a_values=(1000,), fees=(0.01,)), 1, starts=[0], exact=True)
+
+    def test_joint_search_refines_A_at_each_fee(self):
+        config = Config(a_values=(50, 100, 200), fees=(0.002, 0.004))
+        points = [(0, 1, 1.0, 1.0)]
+
+        def score(mapper, points, starts, A, fee, config):
+            target = 100 if fee == 0.002 else 150
+            return {"A": A, "fee": fee, "band_adjusted_loss": (A - target) ** 2 / 10000 + fee}
+
+        with patch("simulator.pairs.reusd_sfrxusd_lp.calculate.evaluate", side_effect=score), patch("builtins.print"):
+            result = run(points, config, 1, starts=[0])
+        evaluated = {(r["A"], r["fee"]) for r in result["evaluations"]}
+        self.assertTrue({(a, f) for a in config.a_values for f in config.fees}.issubset(evaluated))
+        self.assertEqual([(r["A"], r["fee"]) for r in result["best_by_fee"]], [(100, 0.002), (150, 0.004)])
+
     def test_floor_cap_and_observed_feed(self):
         row = observation()
         row["bridge_price_oracle"] = WAD * 100 // 98

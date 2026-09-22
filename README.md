@@ -54,4 +54,4 @@ python simulator/pairs/btcusd/calculate_a.py
 ### Market-specific studies
 
 - [reUSD/sfrxUSD LP–crvUSD](simulator/pairs/reusd_sfrxusd_lp/README.md):
-  onchain oracle reconstruction and sequential v2 `A`/fee parameter screen.
+  onchain oracle reconstruction and joint v2 `A`/fee parameter screen.

@@ -133,29 +133,40 @@ band-adjusted loss = 1 − (1 − maximum raw loss)
                         × mean(((A − 1) / A) ** (band + 0.5))
 ```
 
-The screen evaluates 35 A/fee combinations on 652 shared one-day starts.
+The screen evaluates **246 deployable A/fee combinations** on 652 shared
+one-day starts. Its coarse A grid spans 25–2,000 and fees span 0.05%–1.00%.
+It independently refines A at every fee, rejecting combinations above the
+deployment fee bound `min(4/A, 10%)`. The lowest tested adjusted loss is
+**1.4554% at A=330 / fee 0.30%**.
+
 At the base fee of 0.20%, its lowest tested adjusted loss is
 **1.5049% at A=330**, with raw loss 0.9058%.
-Fee results at that A are:
+The independently selected A at each fee is:
 
-| Fee | Band-adjusted loss |
-| --- | ---: |
-| 0.10% | 1.5425% |
-| 0.20% | 1.5049% |
-| 0.30% | 1.4554% |
-| 0.40% | 1.5869% |
-| 0.50% | 1.8050% |
+| Fee | Best tested A | Band-adjusted loss |
+| --- | ---: | ---: |
+| 0.05% | 330 | 1.5547% |
+| 0.10% | 215 | 1.5297% |
+| 0.20% | 330 | 1.5049% |
+| 0.30% | 330 | 1.4554% |
+| 0.40% | 375 | 1.5029% |
+| 0.50% | 790 | 1.7022% |
+| 0.75% | 510 | 2.1707% |
+| 1.00% | 205 | 2.3243% |
 
-The same A/fee on **12,755 hourly/stress starts** gives
+The base-fee case A=330 / fee 0.20% on **12,755 hourly/stress starts** gives
 **1.5165%** adjusted loss. This denser schedule is a useful check on
 the daily screen, not proof that every possible start has been tested.
 
 The quick screen uses daily starts plus hourly starts before five separated
-oracle/market dislocations. It refines A around the lowest tested coarse loss,
-then sweeps fees. This finite search is not a parameter recommendation or a
+oracle/market dislocations. It refines A around each fee's lowest coarse loss,
+then reports the best tested pair. This finite search is not a parameter recommendation or a
 proved minimum discount. Evaluate an exact combination with
 `--exact --a-values A --fees FEE`; use `--window-step-seconds 3600` for hourly
 starts and `--windows-from RESULT.json` to hold starts fixed across scenarios.
+Use `--loan-seconds` and `--bands` for duration and band-count sensitivity.
+The summary preserves per-fee winners, tested deployment bounds and boundary
+flags; an interior result still does not prove a global or future optimum.
 
 Sensitivity checks use 626 identical starts shared with the five-block grid.
 At A=330 / fee 0.20%, the adjusted maxima are:
