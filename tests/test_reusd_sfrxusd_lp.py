@@ -124,6 +124,17 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(run(points, config, 1, starts, exact=True), run(points, config, 2, starts, exact=True))
         self.assertEqual(simulate([(0, 1, 1.0, 1.0), (86400, 2, 1.0, 1.0)], 150, 0.002, config), 0.0)
 
+    def test_launch_day_cannot_seed_calibration_windows(self):
+        # A large launch dislocation must not consume a stress-window slot or
+        # introduce a pre-warm-up loan start. The raw point remains available.
+        points = [(i * 3600, i + 1, 0.5 if i == 1 else 1.0, 1.0) for i in range(217)]
+        starts = window_starts(points, Config())
+        quiet_launch = [(t, b, 1.0, oracle) for t, b, _, oracle in points]
+        self.assertEqual(starts, window_starts(quiet_launch, Config()))
+        self.assertEqual(points[starts[0]][0], 86400)
+        self.assertTrue(all(points[i][0] >= 86400 for i in starts))
+        self.assertEqual(points[1][2], 0.5)
+
 
 @unittest.skipUnless(os.environ.get("REUSD_ORACLE_SOURCE"), "optional pinned Vyper contract check")
 class ContractParityTests(unittest.TestCase):

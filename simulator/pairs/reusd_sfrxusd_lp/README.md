@@ -58,6 +58,35 @@ state. The base replay calls `price_w` at each sampled block. This is a
 counterfactual call schedule, not a reconstruction of actual market activity.
 The first day is excluded from loan starts as warm-up.
 
+### Launch-period treatment
+
+The first retained block, **22,088,660 (20 March 2025, 14:25:47 UTC)**, is also
+the pool's [first liquidity deposit](https://etherscan.io/tx/0x7277d7536e5b5c0e244b10b1ec6aed55189475a5134bf793352cc64fea8fb5e0)
+and first trading block. Deployment was a week earlier, while supply was zero.
+The existing 24-hour warm-up therefore excludes the actual launch period;
+the first eligible sampled loan start is block **22,095,830**, on 21 March at
+14:26:23 UTC. Raw launch observations remain in the input and warm the EMA.
+
+There is real startup distortion, but no evidence of a corrupt LP virtual-price
+spike. A separate 7,171-block scan found launch-day spot marks of
+0.989777–0.999286 crvUSD/LP and an oracle/spot gap down to **−0.8950%**.
+The LP's own mark was 1.000619–1.004633 reUSD/LP, and its virtual price rose
+from 1.000020 to 1.000303. The pattern is consistent with pool/bridge price
+discovery and EMA lag; it does not establish that these prices were invalid.
+
+As a sensitivity check, every one of the 1,434 retained observations in the
+first day was used as an additional one-day loan start, keeping the existing
+post-warm-up windows fixed. This raises the maximum for six of the 38 generic
+A/fee cases, but leaves the tested minimum at A=850 / fee 0.20% unchanged.
+Its startup-only adjusted maximum is 0.4445%, versus 0.5412% in the retained
+quick screen. A separate replay using every block and all 7,167 launch-day
+starts gives 0.4277% for this same A/fee case; subsequent observations retain
+the five-block cadence. The denser scan also changes assumed oracle writes.
+These checks support retaining the existing startup exclusion as an
+explicit calibration assumption, while preserving launch data for separate
+stress tests. The full-history pricing extrema in `summary.json` still include
+warm-up observations; the committed loan-window loss results do not.
+
 The deployed feed was read and matched against its formula on all **787,237**
 postdeployment observations. The earlier **37,093** rows have an explicit null
 feed and reconstruct the proposed recipe using historical pool/fee inputs.
