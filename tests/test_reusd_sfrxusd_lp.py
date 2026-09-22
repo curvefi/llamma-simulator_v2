@@ -38,6 +38,7 @@ def observation(timestamp=0, block=1, **changes):
         bridge_price_oracle=WAD,
         base_redemption_fee=WAD // 100,
         reusd_feed=None,
+        crvusd_agg_price=WAD,
         **changes,
     )
 
@@ -59,6 +60,21 @@ class ReplayTests(unittest.TestCase):
         _, _, spot, oracle = reconstruct([row], Config())[0]
         self.assertAlmostEqual(spot, 0.98, places=8)
         self.assertAlmostEqual(oracle, 0.99, places=8)
+
+    def test_usd_aggregator_changes_only_the_supplied_oracle(self):
+        row = observation()
+        row["bridge_price_oracle"] = row["bridge_last_price"] = WAD * 100 // 98
+        for aggregator in (90 * WAD // 100, 110 * WAD // 100):
+            row["crvusd_agg_price"] = aggregator
+            _, _, spot, oracle = reconstruct([row], Config())[0]
+            self.assertAlmostEqual(spot, 0.98, places=8)
+            self.assertAlmostEqual(oracle, 0.99 * aggregator / WAD, places=8)
+        row["crvusd_agg_price"] = 0
+        with self.assertRaisesRegex(ValueError, "USD aggregator"):
+            reconstruct([row], Config())
+        del row["crvusd_agg_price"]
+        with self.assertRaises(KeyError):
+            reconstruct([row], Config())
 
     def test_ema_queued_upside_downside_and_read_only(self):
         ema = VirtualPriceEMA(WAD, 0, 866)
@@ -92,7 +108,7 @@ class ReplayTests(unittest.TestCase):
             row["block_hash"] = "0x" + "ab" * 32
         rows[-1]["reusd_feed"] = WAD
         metadata = dict(
-            schema=3,
+            schema=4,
             chain_id=1,
             first_block=10,
             last_block=20,
@@ -107,6 +123,11 @@ class ReplayTests(unittest.TestCase):
             path = Path(directory) / "history.gz"
             write_history(path, metadata, rows)
             self.assertEqual(read_history(path)[1], rows)
+            rows[0]["crvusd_agg_price"] = 0
+            write_history(path, metadata, rows)
+            with self.assertRaisesRegex(ValueError, "USD aggregator"):
+                read_history(path)
+            rows[0]["crvusd_agg_price"] = WAD
             rows[-1]["reusd_feed"] = None
             write_history(path, metadata, rows)
             with self.assertRaisesRegex(ValueError, "missing deployed feed"):
@@ -138,6 +159,45 @@ class ReplayTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("REUSD_ORACLE_SOURCE"), "optional pinned Vyper contract check")
 class ContractParityTests(unittest.TestCase):
+    def test_compiled_three_leg_chain(self):
+        import boa
+
+        source = Path(os.environ["REUSD_ORACLE_SOURCE"])
+        chain_source = source.with_name("ChainOracle.vy")
+        self.assertEqual(
+            hashlib.sha256(chain_source.read_bytes()).hexdigest(),
+            "7d5beafc61cd63249ba24ab871cbcafba9a33192f6e447e5e83afd9e41de45fe",
+        )
+        mock = """
+# pragma version 0.4.3
+p: uint256
+@external
+def set_price(answer: uint256):
+    self.p = answer
+@external
+@view
+def price() -> uint256:
+    return self.p
+@external
+def price_w() -> uint256:
+    return self.p
+"""
+        legs = [boa.loads(mock) for _ in range(3)]
+        for leg in legs:
+            leg.set_price(WAD)
+        chain = boa.load(str(chain_source), [leg.address for leg in legs])
+        for lp_price in (98 * WAD // 100, WAD, 110 * WAD // 100):
+            for bridge in (98 * WAD // 100, WAD, 105 * WAD // 100):
+                for agg in (90 * WAD // 100, WAD, 110 * WAD // 100):
+                    row = observation()
+                    row.update(lp_price_oracle=lp_price, bridge_price_oracle=bridge, crvusd_agg_price=agg)
+                    lp = portfolio_value(row["lp_A_precise"] * 10000 // 200, lp_price)
+                    for leg, price in zip(legs, (lp, feed_value(row), agg)):
+                        leg.set_price(price)
+                    expected = chain.price()
+                    self.assertEqual(chain.price_w(), expected)
+                    self.assertEqual(reconstruct([row], Config())[0][3], expected / WAD)
+
     def test_compiled_contract(self):
         import boa
         import curve_std

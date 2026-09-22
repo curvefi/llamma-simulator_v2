@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline, chronological reUSD/sfrxUSD LP parameter screen, in crvUSD/LP.
+"""Replay the three-leg USD LP oracle against crvUSD-denominated market spot.
 
 The upstream LendingAMM is unchanged. Results describe this normalized replay;
 they do not choose launch parameters, caps, loan discounts, or monetary policy.
@@ -143,6 +143,12 @@ def reconstruct(rows, config):
         lp_oracle = portfolio_value(a_raw, row["lp_price_oracle"]) * smoothed // WAD
         spot = lp_spot * (WAD * WAD // row["bridge_last_price"]) // WAD
         oracle = lp_oracle * feed_value(row) // WAD
+        # Match ChainOracle's third leg and stepwise integer rounding. LLAMMA
+        # consumes this USD-valued number directly; market trades remain crvUSD.
+        aggregator = row["crvusd_agg_price"]
+        if aggregator <= 0:
+            raise ValueError("nonpositive USD aggregator price")
+        oracle = oracle * aggregator // WAD
         if spot <= 0 or oracle <= 0:
             raise ValueError("nonpositive price")
         points.append((timestamp, block, spot / WAD, oracle / WAD))
@@ -324,8 +330,8 @@ def main():
     ):
         parser.error("invalid EMA configuration")
     metadata, rows = read_history(args.history)
-    if metadata.get("schema") != 3 or metadata["chain_id"] != 1:
-        raise ValueError("recollect schema-3 Ethereum inputs before replay")
+    if metadata.get("schema") != 4 or metadata["chain_id"] != 1:
+        raise ValueError("recollect schema-4 Ethereum inputs with the USD aggregator before replay")
     points = reconstruct(rows, config)
     starts = None
     if args.windows_from:
@@ -338,10 +344,14 @@ def main():
             raise ValueError("requested windows are absent or incomplete")
     gaps = [(p[3] / p[2] - 1, p[1], p[0]) for p in points]
     output = {
-        "schema": 2,
+        "schema": 3,
         "python_version": platform.python_version(),
         "mode": "exact" if args.exact else "coarse A, neighboring A, then fee sweep",
-        "units": "crvUSD per LP",
+        "units": {
+            "spot": "crvUSD per LP",
+            "oracle": "USD per LP, supplied directly as the LLAMMA oracle number",
+            "loss": "fraction of initial crvUSD value",
+        },
         "config": asdict(config),
         "history": metadata,
         "history_sha256": hashlib.sha256(args.history.read_bytes()).hexdigest(),

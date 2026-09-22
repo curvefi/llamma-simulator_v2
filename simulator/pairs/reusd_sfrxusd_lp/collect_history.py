@@ -19,6 +19,7 @@ WAD = 10**18
 POOL = "0xed785af60bed688baa8990cd5c4166221599a441"
 BRIDGE = "0xc522a6606bba746d7960404f22a3db936b6f4f50"
 FEED = "0x07ac1e016d4335fb833666ed5c43846162d2b7e8"
+AGG = "0x18672b1b0c623a30089a280ed9256379fb0e4e62"
 REGISTRY = "0x10101010e0c3171d894b71b3400668af311e7d94"
 MULTICALL = "0xca11bde05977b3631167028862be2a173976ca11"
 
@@ -39,6 +40,7 @@ POOL_CALLS = [
 FEED_CALLS = [
     ("redemption_handler", REGISTRY, calldata("redemptionHandler()")),
     ("reusd_feed", FEED, calldata("priceAsCrvusd()")),
+    ("crvusd_agg_price", AGG, calldata("price()")),
 ]
 
 
@@ -56,7 +58,7 @@ def read_history(path):
         rows = [json.loads(line) for line in stream]
     if len(rows) != metadata["record_count"]:
         raise ValueError("history record count mismatch")
-    if metadata.get("schema") == 3:
+    if metadata.get("schema") in (3, 4):
         if not rows or metadata["chain_id"] != 1:
             raise ValueError("empty or non-Ethereum history")
         expected = sample_blocks(
@@ -71,6 +73,8 @@ def read_history(path):
         ):
             raise ValueError("history anchor mismatch")
         for row in rows:
+            if metadata["schema"] == 4 and row.get("crvusd_agg_price", 0) <= 0:
+                raise ValueError("missing or invalid USD aggregator price")
             if len(row["block_hash"]) != 66 or int(row["block_hash"], 16) == 0:
                 raise ValueError("missing block hash")
             if (row["reusd_feed"] is None) != (row["block"] < metadata["feed_first_available_block"]):
@@ -168,7 +172,7 @@ async def collect(args):
         semaphore = asyncio.Semaphore(args.workers)
         cache_key = hashlib.sha256(
             json.dumps(
-                [start, end, args.block_step, args.dense_range, pin["hash"], provenance], sort_keys=True
+                [4, start, end, args.block_step, args.dense_range, pin["hash"], provenance], sort_keys=True
             ).encode()
         ).hexdigest()[:16]
         cache = Path(__file__).resolve().parents[3] / ".tmp" / "reusd-collection" / cache_key
@@ -208,6 +212,8 @@ async def collect(args):
                         if field in row and row[field] != value:
                             raise ValueError(f"reused {field} disagrees at block {block}")
                         row[field] = value
+                    if row["crvusd_agg_price"] <= 0:
+                        raise ValueError(f"invalid USD aggregator price at block {block}")
                     rows.append(row)
                 fees = await batch(
                     [call(row["redemption_handler"], calldata("baseRedemptionFee()"), row["block"]) for row in rows]
@@ -243,7 +249,7 @@ async def collect(args):
         if (await rpc("eth_getBlockByNumber", [hex(end), False]))["hash"] != pin["hash"]:
             raise ValueError("chain changed during collection")
         metadata = {
-            "schema": 3,
+            "schema": 4,
             "chain_id": 1,
             "block_step": args.block_step,
             "dense_ranges": args.dense_range,
@@ -254,7 +260,13 @@ async def collect(args):
             "last_timestamp": rows[-1]["timestamp"],
             "feed_first_available_block": feed_start,
             "pin": {"block_number": end, "block_hash": pin["hash"], "block_timestamp": int(pin["timestamp"], 16)},
-            "contracts": {"lp_pool": POOL, "bridge_pool": BRIDGE, "reusd_feed": FEED, "registry": REGISTRY},
+            "contracts": {
+                "lp_pool": POOL,
+                "bridge_pool": BRIDGE,
+                "reusd_feed": FEED,
+                "registry": REGISTRY,
+                "crvusd_aggregator": AGG,
+            },
             "reused_history": provenance,
             "units": "prices and fees WAD; LP A uses pool A_precise scaling",
         }

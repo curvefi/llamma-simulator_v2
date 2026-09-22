@@ -1,8 +1,8 @@
 {
   "coarse_minimum_at_boundary": false,
   "code_sha256": {
-    "calculate.py": "cdf1c7f6b0a6375d38c435e2cc5bd959f2dc8fe0d007c47e95e21cb7a0fe2a2a",
-    "collect_history.py": "1fbb233d7a22b239bfef2e0d369a2471bf50e0273f58bcf7461ed4870d4389e4",
+    "calculate.py": "9c37afcf7d348e220f87d83f304651fa9b140fe295fca252435176186800bcd2",
+    "collect_history.py": "4af08be162d2308d96cb46fdb103d879b6daad4e2e4ad4e1cb66af5b4b11624a",
     "lending_amm.py": "9ea447e3b5b3904d2cc41cac50cfe12139f1b135d26a4bc367035a6795dc05f5",
     "uv.lock": "831bac961486bd9023061c963c10c04dbed2bcbdeadcef288786888cab193403"
   },
@@ -37,346 +37,319 @@
   },
   "evaluations": [
     {
-      "A": 850,
-      "band_adjusted_loss": 0.006152700228833297,
+      "A": 330,
+      "band_adjusted_loss": 0.015425243993797078,
       "fee": 0.001,
-      "maximum_raw_loss": 0.0038109655800449005,
+      "maximum_raw_loss": 0.00943659331938973,
       "windows": 652,
-      "worst_start_block": 24356605,
-      "worst_start_timestamp": 1769883599
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 100,
-      "band_adjusted_loss": 0.02038015226633838,
+      "band_adjusted_loss": 0.023093865795286384,
       "fee": 0.002,
-      "maximum_raw_loss": 0.0005529982615453122,
+      "maximum_raw_loss": 0.003321636378013526,
       "windows": 652,
-      "worst_start_block": 24361675,
-      "worst_start_timestamp": 1769944799
+      "worst_start_block": 24389415,
+      "worst_start_timestamp": 1770279815
     },
     {
       "A": 200,
-      "band_adjusted_loss": 0.01103676347526461,
+      "band_adjusted_loss": 0.015924144320879408,
       "fee": 0.002,
-      "maximum_raw_loss": 0.0010881477408247742,
+      "maximum_raw_loss": 0.00602469388620519,
       "windows": 652,
-      "worst_start_block": 24361675,
-      "worst_start_timestamp": 1769944799
+      "worst_start_block": 24391795,
+      "worst_start_timestamp": 1770308591
+    },
+    {
+      "A": 215,
+      "band_adjusted_loss": 0.015303160655899095,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.006092385917706333,
+      "windows": 652,
+      "worst_start_block": 24393585,
+      "worst_start_timestamp": 1770330227
+    },
+    {
+      "A": 230,
+      "band_adjusted_loss": 0.01591856532168945,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.007316981673153644,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 245,
+      "band_adjusted_loss": 0.015794907984129636,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.007721496160198904,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 260,
+      "band_adjusted_loss": 0.015516452005975068,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.007908794272229902,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 275,
+      "band_adjusted_loss": 0.015322814000503615,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.008130500741828639,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 290,
+      "band_adjusted_loss": 0.015274423100881118,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.00845531736815619,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 300,
-      "band_adjusted_loss": 0.007982934260244767,
+      "band_adjusted_loss": 0.015168263738009058,
       "fee": 0.002,
-      "maximum_raw_loss": 0.0013432306570929642,
+      "maximum_raw_loss": 0.008576652511159022,
       "windows": 652,
-      "worst_start_block": 24361675,
-      "worst_start_timestamp": 1769944799
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 305,
+      "band_adjusted_loss": 0.015252637848131134,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.008770062801971568,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 310,
+      "band_adjusted_loss": 0.015148247202690368,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.00876995503894018,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 315,
+      "band_adjusted_loss": 0.015169270637116372,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.008892737586417843,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 320,
+      "band_adjusted_loss": 0.015070405338937443,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.008891687524428482,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 325,
+      "band_adjusted_loss": 0.015062863114044256,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.008979503876461847,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 330,
+      "band_adjusted_loss": 0.015049249723532943,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.009058312073630392,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 335,
+      "band_adjusted_loss": 0.015087803029231961,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.00918683087540828,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 350,
+      "band_adjusted_loss": 0.015135249423547492,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.009488307615402203,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 365,
+      "band_adjusted_loss": 0.016596876454943565,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.011190792014130979,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 380,
+      "band_adjusted_loss": 0.016754980467361236,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.011563796734712972,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 395,
+      "band_adjusted_loss": 0.016693367422328853,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.011699597879358592,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 410,
+      "band_adjusted_loss": 0.01684698410886365,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.012037194898008363,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 425,
+      "band_adjusted_loss": 0.016746861438039162,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.012106831990871258,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 440,
+      "band_adjusted_loss": 0.01697932514263767,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.012498965516678506,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 455,
+      "band_adjusted_loss": 0.0170576530769172,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.012725728806997516,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 470,
+      "band_adjusted_loss": 0.0181114120658058,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.013922585879730165,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
+    },
+    {
+      "A": 485,
+      "band_adjusted_loss": 0.018256528743752165,
+      "fee": 0.002,
+      "maximum_raw_loss": 0.014198171358505207,
+      "windows": 652,
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 500,
-      "band_adjusted_loss": 0.005652385636560564,
+      "band_adjusted_loss": 0.018342898091930127,
       "fee": 0.002,
-      "maximum_raw_loss": 0.0016655319475945563,
+      "maximum_raw_loss": 0.014406927228715172,
       "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
-    },
-    {
-      "A": 525,
-      "band_adjusted_loss": 0.005545567693269526,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0017485862362135451,
-      "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
-    },
-    {
-      "A": 550,
-      "band_adjusted_loss": 0.00545597943385856,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0018316345993172334,
-      "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
-    },
-    {
-      "A": 575,
-      "band_adjusted_loss": 0.005868859061372689,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.002403859281330578,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 600,
-      "band_adjusted_loss": 0.005828763849922369,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.002508291168050736,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 625,
-      "band_adjusted_loss": 0.005800096874659655,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0026126037853868578,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 650,
-      "band_adjusted_loss": 0.005744882687099828,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.002680039462020889,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 675,
-      "band_adjusted_loss": 0.005734047111835006,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0027828843099736433,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 700,
-      "band_adjusted_loss": 0.005731292210937267,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0028856991484420558,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 725,
-      "band_adjusted_loss": 0.005735785944014027,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0029884900484322685,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 750,
-      "band_adjusted_loss": 0.005420450140800281,
+      "band_adjusted_loss": 0.01928216715941733,
       "fee": 0.002,
-      "maximum_raw_loss": 0.002764033657241427,
+      "maximum_raw_loss": 0.016662773851715884,
       "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 775,
-      "band_adjusted_loss": 0.005426567837431451,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0028559894208851633,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 800,
-      "band_adjusted_loss": 0.0054380332976351475,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0029479334919061406,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 825,
-      "band_adjusted_loss": 0.005454362741418639,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0030398688403820984,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 830,
-      "band_adjusted_loss": 0.005424710594765014,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0030247111095436097,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 835,
-      "band_adjusted_loss": 0.005428494021823771,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0030428953188661456,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 840,
-      "band_adjusted_loss": 0.005432448239252818,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.00306107904544628,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 845,
-      "band_adjusted_loss": 0.005436570736752411,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003079262817658246,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 850,
-      "band_adjusted_loss": 0.005411908177308855,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003068428050704175,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
-    },
-    {
-      "A": 855,
-      "band_adjusted_loss": 0.005910517442472174,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003581928884566432,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 860,
-      "band_adjusted_loss": 0.0059071375120540726,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0035920980954841086,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 865,
-      "band_adjusted_loss": 0.005914611304423056,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0036129893064041907,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 870,
-      "band_adjusted_loss": 0.005922234453333064,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003633875783901952,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 875,
-      "band_adjusted_loss": 0.005930008386775709,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003654761604364065,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 900,
-      "band_adjusted_loss": 0.005921422527313092,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003709441385152501,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 925,
-      "band_adjusted_loss": 0.0059226056617633915,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.003770487153220037,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 950,
-      "band_adjusted_loss": 0.005932634710822948,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.0038372428777349032,
-      "windows": 652,
-      "worst_start_block": 24714010,
-      "worst_start_timestamp": 1774194095
-    },
-    {
-      "A": 975,
-      "band_adjusted_loss": 0.006058421876859232,
-      "fee": 0.002,
-      "maximum_raw_loss": 0.004017081856840132,
-      "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 1000,
-      "band_adjusted_loss": 0.0060549507230044375,
+      "band_adjusted_loss": 0.019615740865916664,
       "fee": 0.002,
-      "maximum_raw_loss": 0.004064697891247748,
+      "maximum_raw_loss": 0.017652641850160578,
       "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 1500,
-      "band_adjusted_loss": 0.006368914049757701,
+      "band_adjusted_loss": 0.019828144126210367,
       "fee": 0.002,
-      "maximum_raw_loss": 0.005043023143080139,
+      "maximum_raw_loss": 0.01852021307507834,
       "windows": 652,
-      "worst_start_block": 24714310,
-      "worst_start_timestamp": 1774197695
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
       "A": 2000,
-      "band_adjusted_loss": 0.006326627371679772,
+      "band_adjusted_loss": 0.019924036796900357,
       "fee": 0.002,
-      "maximum_raw_loss": 0.005332363741443524,
+      "maximum_raw_loss": 0.01894337865316431,
       "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
-      "A": 850,
-      "band_adjusted_loss": 0.0057248437762095206,
+      "A": 330,
+      "band_adjusted_loss": 0.014553782072269428,
       "fee": 0.003,
-      "maximum_raw_loss": 0.003382100998425841,
+      "maximum_raw_loss": 0.008559830753099185,
       "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
+      "worst_start_block": 24394180,
+      "worst_start_timestamp": 1770337391
     },
     {
-      "A": 850,
-      "band_adjusted_loss": 0.005724894597613273,
+      "A": 330,
+      "band_adjusted_loss": 0.01586897186787961,
       "fee": 0.004,
-      "maximum_raw_loss": 0.003382151939576583,
+      "maximum_raw_loss": 0.00988302015687359,
       "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
+      "worst_start_block": 24391795,
+      "worst_start_timestamp": 1770308591
     },
     {
-      "A": 850,
-      "band_adjusted_loss": 0.005724894597613273,
+      "A": 330,
+      "band_adjusted_loss": 0.01804956284651882,
       "fee": 0.005,
-      "maximum_raw_loss": 0.003382151939576583,
+      "maximum_raw_loss": 0.012076874524153625,
       "windows": 652,
-      "worst_start_block": 24405530,
-      "worst_start_timestamp": 1770474359
+      "worst_start_block": 24389120,
+      "worst_start_timestamp": 1770276251
     }
   ],
   "history": {
@@ -384,6 +357,7 @@
     "chain_id": 1,
     "contracts": {
       "bridge_pool": "0xc522a6606bba746d7960404f22a3db936b6f4f50",
+      "crvusd_aggregator": "0x18672b1b0c623a30089a280ed9256379fb0e4e62",
       "lp_pool": "0xed785af60bed688baa8990cd5c4166221599a441",
       "registry": "0x10101010e0c3171d894b71b3400668af311e7d94",
       "reusd_feed": "0x07ac1e016d4335fb833666ed5c43846162d2b7e8"
@@ -415,7 +389,7 @@
         "block_number": 25870305,
         "block_timestamp": 1788119591
       },
-      "sha256": "68c12d669d438d81abfa4b998a29c270cf6cf571f1f80aa932bcaf6e8bbb7be3",
+      "sha256": "54fe48e002c9e267c8a134b7e0153e49a5975d27d929e38dfc57d76850e3c685",
       "verification_blocks": [
         22088660,
         22217460,
@@ -453,33 +427,37 @@
         25870305
       ]
     },
-    "schema": 3,
+    "schema": 4,
     "units": "prices and fees WAD; LP A uses pool A_precise scaling"
   },
-  "history_sha256": "54fe48e002c9e267c8a134b7e0153e49a5975d27d929e38dfc57d76850e3c685",
-  "lowest_loss_A_at_base_fee": 850,
+  "history_sha256": "2c69962adf44796f244eccfd890d5531e062fcc83079907b0878927b6b29f382",
+  "lowest_loss_A_at_base_fee": 330,
   "mode": "coarse A, neighboring A, then fee sweep",
   "pricing": {
     "counterfactual_feed_rows": 37093,
     "max_positive_oracle_gap": [
-      0.03258722249811874,
+      0.029295362780047185,
       24361675,
       1769944799
     ],
     "maximum_sample_gap_seconds": 156,
     "min_oracle_gap": [
-      -0.008297594705307998,
-      22088680,
-      1742480987
+      -0.02400124554938543,
+      24394180,
+      1770337391
     ],
     "observations": 824330,
     "observed_feed_rows": 787237,
     "oracle_updates": "price_w at sampled blocks subject to configured minimum interval"
   },
   "python_version": "3.11.15",
-  "schema": 2,
+  "schema": 3,
   "scope": "Sampled chronological, one-day, normalized soft-liquidation loss; not a parameter recommendation or a model of size-dependent exits, hard liquidation, final bad debt, caps or monetary policy.",
-  "units": "crvUSD per LP",
+  "units": {
+    "loss": "fraction of initial crvUSD value",
+    "oracle": "USD per LP, supplied directly as the LLAMMA oracle number",
+    "spot": "crvUSD per LP"
+  },
   "window_start_blocks": [
     22095830,
     22103005,
@@ -673,32 +651,7 @@
     23447775,
     23454925,
     23462080,
-    23465950,
-    23466245,
-    23466545,
-    23466845,
-    23467145,
-    23467440,
-    23467740,
-    23468035,
-    23468330,
-    23468630,
-    23468930,
-    23469230,
     23469235,
-    23469530,
-    23469825,
-    23470125,
-    23470420,
-    23470720,
-    23471020,
-    23471320,
-    23471615,
-    23471915,
-    23472210,
-    23472510,
-    23472810,
-    23473105,
     23476390,
     23483535,
     23490685,
@@ -852,7 +805,32 @@
     24369758,
     24376915,
     24384075,
+    24387030,
+    24387330,
+    24387630,
+    24387925,
+    24388225,
+    24388520,
+    24388820,
+    24389120,
+    24389415,
+    24389710,
+    24390010,
+    24390310,
+    24390605,
+    24390900,
+    24391200,
     24391215,
+    24391500,
+    24391795,
+    24392095,
+    24392395,
+    24392695,
+    24392990,
+    24393285,
+    24393585,
+    24393885,
+    24394180,
     24398370,
     24405530,
     24412645,
@@ -1327,32 +1305,7 @@
     1758896759,
     1758983183,
     1759069559,
-    1759116299,
-    1759119887,
-    1759123523,
-    1759127123,
-    1759130735,
-    1759134287,
-    1759137899,
-    1759141511,
-    1759145075,
-    1759148687,
-    1759152311,
-    1759155923,
     1759155983,
-    1759159523,
-    1759163087,
-    1759166723,
-    1759170275,
-    1759173899,
-    1759177511,
-    1759181123,
-    1759184687,
-    1759188299,
-    1759191875,
-    1759195487,
-    1759199111,
-    1759202675,
     1759242359,
     1759328759,
     1759415147,
@@ -1506,7 +1459,32 @@
     1770042347,
     1770128747,
     1770215159,
+    1770251003,
+    1770254615,
+    1770258239,
+    1770261791,
+    1770265415,
+    1770268991,
+    1770272603,
+    1770276251,
+    1770279815,
+    1770283391,
+    1770287015,
+    1770290627,
+    1770294203,
+    1770297791,
+    1770301415,
     1770301595,
+    1770305039,
+    1770308591,
+    1770312215,
+    1770315815,
+    1770319439,
+    1770322991,
+    1770326591,
+    1770330227,
+    1770333827,
+    1770337391,
     1770387983,
     1770474359,
     1770560759,
