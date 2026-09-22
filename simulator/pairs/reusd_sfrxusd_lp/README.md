@@ -73,6 +73,9 @@ spike. A separate 7,171-block scan found launch-day spot marks of
 The LP's own mark was 1.000619–1.004633 reUSD/LP, and its virtual price rose
 from 1.000020 to 1.000303. The pattern is consistent with pool/bridge price
 discovery and EMA lag; it does not establish that these prices were invalid.
+Removing the redemption floor from the same early observations would deepen
+the minimum oracle/spot gap to **−3.4518%**. This isolates the pricing effect
+of the floor; it is not a rerun of the former candle-based simulator.
 
 As a sensitivity check, every one of the 1,434 retained observations in the
 first day was used as an additional one-day loan start, keeping the existing
