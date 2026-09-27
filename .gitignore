@@ -149,5 +149,4 @@ pip-selfcheck.json
 .idea
 .DS_Store
 tmp*
-.tmp/
 pyarmor-regfile.zip
