@@ -1,31 +1,30 @@
-"""Focused replay checks; optional compiled-contract parity uses REUSD_ORACLE_SOURCE.
+"""Data preparation checks; optional compiled-contract parity uses REUSD_ORACLE_SOURCE.
 
 The optional check needs titanoboa and the dependencies from the pinned
 curve-stablecoin checkout. Normal tests need only the simulator's locked environment.
 """
 
+import gzip
 import hashlib
 import importlib.metadata
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
-from simulator.pairs.reusd_sfrxusd_lp.calculate import (
+from simulator.pairs.reusd_sfrxusd_lp.collect_history import read_history, sample_blocks, write_history
+from simulator.pairs.reusd_sfrxusd_lp.prepare import (
     WAD,
     Config,
     VirtualPriceEMA,
-    contract_valid,
     feed_value,
     portfolio_value,
+    prepare,
     reconstruct,
-    run,
-    simulate,
-    window_starts,
 )
-from simulator.pairs.reusd_sfrxusd_lp.collect_history import read_history, sample_blocks, write_history
 
 
 def observation(timestamp=0, block=1, **changes):
@@ -45,28 +44,75 @@ def observation(timestamp=0, block=1, **changes):
     )
 
 
-class ReplayTests(unittest.TestCase):
-    def test_deployment_fee_limit_depends_on_A(self):
-        self.assertTrue(contract_valid(1000, 0.004))
-        self.assertFalse(contract_valid(1000, 0.004001))
-        self.assertFalse(contract_valid(10001, 0.0001))
-        self.assertFalse(contract_valid(100, 0))
-        with self.assertRaisesRegex(ValueError, "deployment bounds"):
-            run([(0, 1, 1.0, 1.0)], Config(a_values=(1000,), fees=(0.01,)), 1, starts=[0], exact=True)
-
-    def test_joint_search_refines_A_at_each_fee(self):
-        config = Config(a_values=(50, 100, 200), fees=(0.002, 0.004))
-        points = [(0, 1, 1.0, 1.0)]
-
-        def score(mapper, points, starts, A, fee, config):
-            target = 100 if fee == 0.002 else 150
-            return {"A": A, "fee": fee, "band_adjusted_loss": (A - target) ** 2 / 10000 + fee}
-
-        with patch("simulator.pairs.reusd_sfrxusd_lp.calculate.evaluate", side_effect=score), patch("builtins.print"):
-            result = run(points, config, 1, starts=[0])
-        evaluated = {(r["A"], r["fee"]) for r in result["evaluations"]}
-        self.assertTrue({(a, f) for a in config.a_values for f in config.fees}.issubset(evaluated))
-        self.assertEqual([(r["A"], r["fee"]) for r in result["best_by_fee"]], [(100, 0.002), (150, 0.004)])
+class PreparationTests(unittest.TestCase):
+    def test_offline_export_and_standalone_cli(self):
+        rows = [observation(1000 + i * 60, 10 + i * 5) for i in range(3)]
+        for row in rows:
+            row["block_hash"] = "0x" + "ab" * 32
+            row["reusd_feed"] = WAD
+            row["crvusd_agg_price"] = WAD * 9 // 10
+        metadata = dict(
+            schema=4,
+            chain_id=1,
+            first_block=10,
+            last_block=20,
+            block_step=5,
+            first_timestamp=1000,
+            last_timestamp=1120,
+            feed_first_available_block=10,
+            pin={"block_hash": rows[-1]["block_hash"]},
+            record_count=3,
+        )
+        script = Path(__file__).resolve().parents[1] / "simulator/pairs/reusd_sfrxusd_lp/prepare.py"
+        with tempfile.TemporaryDirectory() as directory:
+            history = Path(directory) / "history.jsonl.gz"
+            output = Path(directory) / "prices.jsonl.gz"
+            second = Path(directory) / "second.jsonl.gz"
+            history_hash = write_history(history, metadata, rows)
+            digest = prepare(history, output)
+            result = subprocess.run(
+                [sys.executable, str(script), "--history", str(history), "--output", str(second)],
+                cwd=directory,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            self.assertEqual(json.loads(result.stdout)["sha256"], digest)
+            self.assertEqual(output.read_bytes(), second.read_bytes())
+            self.assertEqual(hashlib.sha256(history.read_bytes()).hexdigest(), history_hash)
+            with gzip.open(output, "rt") as stream:
+                header = json.loads(next(stream))["metadata"]
+                prices = [json.loads(line) for line in stream]
+            self.assertEqual(header["history_sha256"], history_hash)
+            self.assertEqual(header["record_count"], 3)
+            self.assertEqual(header["code_sha256"]["prepare.py"], hashlib.sha256(script.read_bytes()).hexdigest())
+            self.assertEqual(header["scale"], WAD)
+            self.assertEqual(header["units"]["spot"], "crvUSD per LP")
+            self.assertEqual(header["units"]["oracle"], "USD per LP")
+            self.assertEqual(
+                prices,
+                [
+                    # Pinned LP solver output includes its bisection tolerance.
+                    {
+                        "timestamp": r["timestamp"],
+                        "block": r["block"],
+                        "spot": 1000000000018580007,
+                        "oracle": 900000000016722006,
+                    }
+                    for r in rows
+                ],
+            )
+            with self.assertRaises(FileExistsError):
+                prepare(history, output)
+            with self.assertRaises(FileExistsError):
+                prepare(history, history)
+            self.assertEqual(hashlib.sha256(output.read_bytes()).hexdigest(), digest)
+            rows[-1]["crvusd_agg_price"] = 0
+            write_history(history, metadata, rows)
+            invalid = Path(directory) / "invalid.jsonl.gz"
+            with self.assertRaisesRegex(ValueError, "USD aggregator"):
+                prepare(history, invalid)
+            self.assertFalse(invalid.exists())
 
     def test_floor_cap_and_observed_feed(self):
         row = observation()
@@ -82,8 +128,8 @@ class ReplayTests(unittest.TestCase):
         row = observation()
         row["bridge_price_oracle"] = row["bridge_last_price"] = WAD * 100 // 98
         _, _, spot, oracle = reconstruct([row], Config())[0]
-        self.assertAlmostEqual(spot, 0.98, places=8)
-        self.assertAlmostEqual(oracle, 0.99, places=8)
+        self.assertAlmostEqual(spot / WAD, 0.98, places=8)
+        self.assertAlmostEqual(oracle / WAD, 0.99, places=8)
 
     def test_usd_aggregator_changes_only_the_supplied_oracle(self):
         row = observation()
@@ -91,8 +137,8 @@ class ReplayTests(unittest.TestCase):
         for aggregator in (90 * WAD // 100, 110 * WAD // 100):
             row["crvusd_agg_price"] = aggregator
             _, _, spot, oracle = reconstruct([row], Config())[0]
-            self.assertAlmostEqual(spot, 0.98, places=8)
-            self.assertAlmostEqual(oracle, 0.99 * aggregator / WAD, places=8)
+            self.assertAlmostEqual(spot / WAD, 0.98, places=8)
+            self.assertAlmostEqual(oracle / WAD, 0.99 * aggregator / WAD, places=8)
         row["crvusd_agg_price"] = 0
         with self.assertRaisesRegex(ValueError, "USD aggregator"):
             reconstruct([row], Config())
@@ -111,7 +157,7 @@ class ReplayTests(unittest.TestCase):
         self.assertEqual(ema.price(WAD // 2, 900), WAD // 2)
         self.assertEqual(ema.price(WAD, 1800), WAD // 2)
 
-    def test_no_lookahead_or_ema_reset_between_windows(self):
+    def test_prefix_stability_and_continuous_oracle_state(self):
         rows = [observation(i * 12, i + 1) for i in range(100)]
         for row in rows[40:]:
             row["lp_virtual_price"] = 2 * WAD
@@ -161,25 +207,6 @@ class ReplayTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "missing or duplicate sampled block"):
                 read_history(path)
 
-    def test_windows_reproducible_and_workers_agree(self):
-        points = [(i * 600, i + 1, 1 - 0.01 * (i % 12) / 12, 1.0) for i in range(100)]
-        config = Config(a_values=(150,), fees=(0.002,), warmup_seconds=600, loan_seconds=3600, window_step_seconds=3600)
-        starts = window_starts(points, config)
-        self.assertEqual(starts, window_starts(points, config))
-        self.assertEqual(run(points, config, 1, starts, exact=True), run(points, config, 2, starts, exact=True))
-        self.assertEqual(simulate([(0, 1, 1.0, 1.0), (86400, 2, 1.0, 1.0)], 150, 0.002, config), 0.0)
-
-    def test_launch_day_cannot_seed_calibration_windows(self):
-        # A large launch dislocation must not consume a stress-window slot or
-        # introduce a pre-warm-up loan start. The raw point remains available.
-        points = [(i * 3600, i + 1, 0.5 if i == 1 else 1.0, 1.0) for i in range(217)]
-        starts = window_starts(points, Config())
-        quiet_launch = [(t, b, 1.0, oracle) for t, b, _, oracle in points]
-        self.assertEqual(starts, window_starts(quiet_launch, Config()))
-        self.assertEqual(points[starts[0]][0], 86400)
-        self.assertTrue(all(points[i][0] >= 86400 for i in starts))
-        self.assertEqual(points[1][2], 0.5)
-
 
 @unittest.skipUnless(os.environ.get("REUSD_ORACLE_SOURCE"), "optional pinned Vyper contract check")
 class ContractParityTests(unittest.TestCase):
@@ -220,7 +247,7 @@ def price_w() -> uint256:
                         leg.set_price(price)
                     expected = chain.price()
                     self.assertEqual(chain.price_w(), expected)
-                    self.assertEqual(reconstruct([row], Config())[0][3], expected / WAD)
+                    self.assertEqual(reconstruct([row], Config())[0][3], expected)
 
     def test_compiled_contract(self):
         import boa

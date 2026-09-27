@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze paired Ethereum observations; calculate.py replays without an RPC.
+"""Freeze paired Ethereum observations; prepare.py reconstructs prices offline.
 
 ETH_RPC_URL is environment-only. --reuse enriches pinned legacy pool readings;
 the source checksum and fresh, deterministic verification samples are recorded.
