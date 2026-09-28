@@ -7,11 +7,13 @@ from typing import NamedTuple
 def initial_recovery_coefficient(A: int, bands: int) -> float:
     """Initial recovery / opening oracle for the unshifted synthetic position.
 
-    Restoring the oracle before deposit selects bands 2 through N+1.
-    Each all-collateral band recovers at its geometric boundary price.
+    Phil's placement selects bands 1 through N. The opening oracle lies just
+    inside band 1; use its in-band recovery, then geometric recovery for 2..N.
     """
     q = (A - 1) / A
-    return (1 + 1e-4 * q) * q * fsum(q ** (k + 0.5) for k in range(bands)) / bands
+    upper = 1 + 1e-4 * q
+    first = A * ((upper - 1) / upper**2 + (1 / upper - q) * sqrt(upper * q))
+    return (first + upper * fsum(q ** (k + 0.5) for k in range(1, bands))) / bands
 
 
 class OracleState(NamedTuple):

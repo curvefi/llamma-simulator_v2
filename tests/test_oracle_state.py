@@ -1,4 +1,5 @@
 import unittest
+from decimal import Decimal, localcontext
 from unittest.mock import Mock, patch
 
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
@@ -11,6 +12,27 @@ def simulator(candles, oracles):
     loader.load_prices.return_value = candles
     oracle.calculate_oracle_prices.return_value = oracles
     return Simulator(ConstantInitialLiquidity, loader, oracle)
+
+
+def expected_opening_recovery(a, bands):
+    # Independently value the first band's invariant at oracle=1, then convert
+    # its remaining collateral to the lower boundary. Other bands are all y.
+    with localcontext() as context:
+        context.prec = 60
+        a, amount = Decimal(a), Decimal(1) / bands
+        q = (a - 1) / a
+        upper = 1 + Decimal("0.0001") * q
+        lower = upper * q
+        y0 = amount / upper
+        f, g = a * y0 / upper, (a - 1) * y0 * upper
+        invariant = f * (g + amount)
+        y_at_oracle = a * y0 * (1 - lower)
+        x_at_oracle = invariant / (g + y_at_oracle) - f
+        value = x_at_oracle + y_at_oracle * lower.sqrt()
+        for band in range(2, bands + 1):
+            top = upper * q ** (band - 1)
+            value += amount * (top * top * q).sqrt()
+        return float(value)
 
 
 class OracleStateTest(unittest.TestCase):
@@ -47,23 +69,47 @@ class OracleStateTest(unittest.TestCase):
     def test_flat_history_no_artificial_fee_and_correct_bands(self):
         state = list(oracle_states((t, 1.0) for t in range(0, 300, 60)))[-1]
         self.assertEqual(state.old_dfee, 0)
-        for a in (10, 100, 393, 600):
-            q = (a - 1) / a
-            base = a / (a - 1) + 0.0001
-            amm = LendingAMM(base, a, 0.001, oracle_state=state)
-            ConstantInitialLiquidity(1, 4).deposit(amm, 1)
-            self.assertEqual((amm.min_band, amm.max_band), (2, 5))
-            expected = sum(base * q ** (n + 0.5) for n in range(2, 6)) / 4
-            self.assertAlmostEqual(amm.get_all_x(), expected, places=14)
-            self.assertAlmostEqual(initial_recovery_coefficient(a, 4), expected, places=14)
+        for a in (2, 10, 100, 393, 600, 1200, 10000):
+            for bands in (1, 4, 50):
+                base = a / (a - 1) + 0.0001
+                amm = LendingAMM(base, a, 0.001, oracle_state=state)
+                ConstantInitialLiquidity(1, bands).deposit(amm, 1)
+                self.assertEqual((amm.min_band, amm.max_band), (1, bands))
+                self.assertAlmostEqual(sum(amm.bands_y.values()), 1)
+                expected = expected_opening_recovery(a, bands)
+                self.assertAlmostEqual(amm.get_all_x(), expected, delta=1e-10)
+                self.assertAlmostEqual(initial_recovery_coefficient(a, bands), expected, delta=1e-10)
+
+    def test_placement_matches_phil_without_resetting_memory(self):
+        state = list(oracle_states([(0, 1), (60, 1.1), (120, 0.8)]))[-1]
+        self.assertGreater(state.old_dfee, 0)
+        for a in (10, 393, 600, 1200, 10000):
+            for bands in (1, 4, 50):
+                for shift in (0, 0.05):
+                    p0 = state.p_oracle * (1 - shift)
+                    base = p0 * (a / (a - 1) + 0.0001)
+                    # Phil deposits while the constructor oracle is p_base.
+                    phil = LendingAMM(base, a, 0.001, oracle_state=OracleState.initial(base, 120))
+                    phil.deposit_nrange(1, p0, bands)
+                    current = LendingAMM(base, a, 0.001, oracle_state=state)
+                    ConstantInitialLiquidity(p0, bands).deposit(current, 1)
+                    self.assertEqual((current.min_band, current.max_band), (phil.min_band, phil.max_band))
+                    self.assertEqual(dict(current.bands_y), dict(phil.bands_y))
+                    for n in range(phil.min_band, phil.max_band + 1):
+                        self.assertEqual(current.p_top(n), phil.p_top(n))
+                        self.assertEqual(current.p_bottom(n), phil.p_bottom(n))
+                    self.assertEqual(current.oracle_state(), state)
 
     def test_score_preserves_terminal_recovery_objective(self):
         for a in (10, 100, 393, 600):
             q = (a - 1) / a
-            upper = (1 / q + 0.0001) * q**2
-            initial = upper * q**0.5
+            upper = (1 / q + 0.0001) * q
+            initial = expected_opening_recovery(a, 1)
             final = 0.7**3 / (upper**2 * q)
-            candles = [[0, 1, 1, 1, 1, 0], [180, 0.7, 0.7, 0.7, 0.7, 0]]
+            # Start at the empty band's trading boundary so the first candle
+            # leaves the collateral intact for the independent final formula.
+            spot = 1 / upper**2
+            candles = [[0, spot, spot, spot, spot, 0], [180, 0.7, 0.7, 0.7, 0.7, 0]]
             sim = simulator(candles, [1, 0.7])
             loss = sim.single_run(a, 0, 0, 1, 1, 0)
             self.assertAlmostEqual(loss, 1 - final / initial, places=12)
