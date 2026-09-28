@@ -50,6 +50,13 @@ class Simulator:
 
         self.prices = self.load_prices()
         self.oracle_prices = self.calculate_oracle_price(self.prices)
+        if len(self.prices) != len(self.oracle_prices):
+            raise ValueError("Candle and oracle observations do not align")
+        first = next((i for i, value in enumerate(self.oracle_prices) if value is not None), len(self.prices))
+        self.prices = self.prices[first:]
+        self.oracle_prices = self.oracle_prices[first:]
+        if not self.prices or any(value is None for value in self.oracle_prices):
+            raise ValueError("No complete causal oracle history for replay")
 
     def load_prices(self) -> list:
         return self.price_history_loader.load_prices()
