@@ -1,12 +1,13 @@
 import logging
 import random
 from datetime import datetime
+from math import isfinite
 from multiprocessing import Pool
 
 import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
-from .lending_amm import LendingAMM
+from .lending_amm import LendingAMM, OracleState, oracle_states
 from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
@@ -57,6 +58,7 @@ class Simulator:
         self.oracle_prices = self.oracle_prices[first:]
         if not self.prices or any(value is None for value in self.oracle_prices):
             raise ValueError("No complete causal oracle history for replay")
+        self.oracle_states = list(oracle_states((row[0], price) for row, price in zip(self.prices, self.oracle_prices)))
 
     def load_prices(self) -> list:
         return self.price_history_loader.load_prices()
@@ -95,6 +97,7 @@ class Simulator:
             initial_liquidity_range,
             dynamic_fee_multiplier,
             position_shift,
+            initial_state=OracleState(*self.oracle_states[position_start_index]),
         )
 
     def calculate_loss(
@@ -106,17 +109,29 @@ class Simulator:
         initial_liquidity_range: int,  # p0 then n number of bands
         dynamic_fee_multiplier: float | None = None,
         position_shift: float = 0,  # [0, 1) how much lower from current prices
+        *,
+        initial_state: OracleState,
     ):
-        p0 = prices_for_simulation[0][1] * (1 - position_shift)
+        if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
+            raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
+        if (
+            initial_state.current_timestamp != prices_for_simulation[0][0]
+            or initial_state.prev_p_oracle_time != prices_for_simulation[0][0]
+            or initial_state.raw_p_oracle != oracle_prices_for_simulation[0]
+        ):
+            raise ValueError("Starting oracle state does not match the first candle")
+        p0 = initial_state.p_oracle * (1 - position_shift)
 
         initial_y0 = 1.0  # 1 ETH
         p_base = p0 * (A / (A - 1) + 1e-4)
         initial_x_value = initial_y0 * p_base
-        amm = LendingAMM(p_base, A, fee, dynamic_fee_multiplier)
+        amm = LendingAMM(p_base, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
 
         # Fill ticks with liquidity
         self.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
         initial_all_x = amm.get_all_x()
+        if not isfinite(initial_all_x) or initial_all_x <= 0:
+            raise ValueError("Initial recovery value must be finite and positive")
 
         xs_normalized = []
         fees = []
@@ -148,8 +163,11 @@ class Simulator:
                 return p * (1 + amm.dynamic_fee(amm.max_band, timestamp=timestamp))
 
         # <----------------- Calculation ----------------->
-        for (t, open, high, low, close, vol), oracle_price in zip(prices_for_simulation, oracle_prices_for_simulation):
-            amm.set_p_oracle(oracle_price, timestamp=t)
+        for i, ((t, open, high, low, close, vol), oracle_price) in enumerate(
+            zip(prices_for_simulation, oracle_prices_for_simulation)
+        ):
+            if i:
+                amm.set_p_oracle(oracle_price, timestamp=t)
 
             high_external = high * (1 - self.external_fee)
             low_external = low * (1 + self.external_fee)
@@ -194,6 +212,8 @@ class Simulator:
             logger.info(f"Xs after trades list: {xs_normalized}")
 
         loss = 1 - amm.get_all_x() / initial_all_x
+        if not isfinite(loss):
+            raise ValueError("Final loss is not finite")
         return loss
 
     def single_run_kw(self, kw):
@@ -252,6 +272,7 @@ class SimulatorV2(Simulator):
             initial_liquidity_range,
             dynamic_fee_multiplier,
             position_shift,
+            initial_state=OracleState(*self.oracle_states[position_start_index]),
         )
 
     def single_run_v2_kw(self, kw):
@@ -314,17 +335,10 @@ def get_loss_rate(
     else:
         results = []
         for kw in kwargs_list:
-            try:
-                sr_result = simulator.single_run(**kw)
-                if simulator.log_enabled:
-                    logger.info(
-                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
-                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
-                    )
-                results.append(sr_result)
-            except Exception as e:
-                logger.warning(e)
-                results.append(0)
+            sr_result = simulator.single_run(**kw)
+            if simulator.log_enabled:
+                logger.info(f"Results A:{kw['A']}, position_start:{kw['position_start']}: {sr_result}")
+            results.append(sr_result)
 
     if not n_top_samples:
         n_top_samples = samples // 20
@@ -387,17 +401,10 @@ def get_loss_rate_v2(
     else:
         results = []
         for kw in kwargs_list:
-            try:
-                sr_result = simulator.single_run_v2(**kw)
-                if simulator.log_enabled:
-                    logger.info(
-                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
-                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
-                    )
-                results.append(sr_result)
-            except Exception as e:
-                logger.warning(e)
-                results.append(0)
+            sr_result = simulator.single_run_v2(**kw)
+            if simulator.log_enabled:
+                logger.info(f"Results A:{kw['A']}, position_start:{kw['position_start']}: {sr_result}")
+            results.append(sr_result)
 
     if not n_top_samples:
         results = [r for r in results if r > 0]

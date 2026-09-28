@@ -1,6 +1,50 @@
-from collections import defaultdict
-from math import floor, log, sqrt
 import warnings
+from collections import defaultdict
+from math import floor, fsum, isfinite, log, sqrt
+from typing import NamedTuple
+
+
+def initial_recovery_coefficient(A: int, bands: int) -> float:
+    """Initial recovery / opening oracle for the unshifted synthetic position.
+
+    Restoring the oracle before deposit selects bands 2 through N+1.
+    Each all-collateral band recovers at its geometric boundary price.
+    """
+    q = (A - 1) / A
+    return (1 + 1e-4 * q) * q * fsum(q ** (k + 0.5) for k in range(bands)) / bands
+
+
+class OracleState(NamedTuple):
+    """Oracle memory after an update, before any position-specific trade."""
+
+    p_oracle: float
+    prev_p_oracle: float
+    raw_p_oracle: float
+    old_p_oracle: float
+    old_dfee: float
+    prev_p_oracle_time: float
+    current_timestamp: float
+
+    @classmethod
+    def initial(cls, price: float, timestamp: float):
+        return cls(price, price, price, price, 0.0, timestamp, timestamp)
+
+
+def oracle_states(observations):
+    """Prepare once from full (timestamp, oracle) history using the AMM transition."""
+    observations = iter(observations)
+    first = next(observations, None)
+    if first is None:
+        return
+    timestamp, price = first
+    # A and fees do not enter the oracle-memory transition.
+    amm = LendingAMM(price, 2, 0.0, oracle_state=OracleState.initial(price, timestamp))
+    yield amm.oracle_state()
+    for timestamp, price in observations:
+        if not isfinite(price) or price <= 0 or not isfinite(timestamp) or timestamp <= amm.current_timestamp:
+            raise ValueError("Oracle history must have positive prices and increasing finite timestamps")
+        amm.set_p_oracle(price, timestamp=timestamp)
+        yield amm.oracle_state()
 
 
 class LendingAMM:
@@ -8,21 +52,37 @@ class LendingAMM:
     MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
     MIN_PRICE_RATIO = 1 / MAX_P_O_CHANGE
 
-    def __init__(self, p_base: float, A: int, fee: float, dynamic_fee_multiplier: float | None = None):
+    def __init__(
+        self,
+        p_base: float,
+        A: int,
+        fee: float,
+        dynamic_fee_multiplier: float | None = None,
+        *,
+        oracle_state: OracleState,
+    ):
         self.p_base = p_base
-        self.p_oracle = p_base
-        self.prev_p_oracle = p_base
-        self.raw_p_oracle = p_base
-        self.old_p_oracle = p_base
-        self.old_dfee = 0.0
-        self.prev_p_oracle_time: float | None = None
-        self.current_timestamp: float | None = None
+        self.restore_oracle_state(oracle_state)
         self.A = A
         self.dynamic_fee_multiplier = dynamic_fee_multiplier if dynamic_fee_multiplier is not None else 0.25
         self.bands_x = defaultdict(float)
         self.bands_y = defaultdict(float)
         self.active_band = 0
         self.fee = fee
+
+    def oracle_state(self) -> OracleState:
+        return OracleState(*(getattr(self, field) for field in OracleState._fields))
+
+    def restore_oracle_state(self, state: OracleState):
+        if (
+            not all(isfinite(value) for value in state)
+            or min(state[:4]) <= 0
+            or not 0 <= state.old_dfee < 1
+            or state.prev_p_oracle_time > state.current_timestamp
+        ):
+            raise ValueError("Invalid oracle state")
+        for field, value in zip(OracleState._fields, state):
+            setattr(self, field, value)
 
     # Deposit:
     # - above active band - only in y,

@@ -3,7 +3,7 @@ from math import sqrt
 from unittest.mock import Mock, patch
 
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
-from simulator.amm.lending_amm import LendingAMM
+from simulator.amm.lending_amm import LendingAMM, OracleState
 from simulator.amm.simulator import Simulator
 
 
@@ -18,15 +18,16 @@ def make_simulator(candles, oracle_prices, external_fee, liquidity=ConstantIniti
 def replay_position(amm, candle, oracle_price, external_fee):
     # Keep the prepared balances rather than depositing a new position.
     simulator = make_simulator([candle], [oracle_price], external_fee, liquidity=Mock())
+    amm.set_p_oracle(oracle_price, candle[0])
     with patch("simulator.amm.simulator.LendingAMM", return_value=amm):
-        simulator.calculate_loss(amm.A, amm.fee, [candle], [oracle_price], 4)
+        simulator.calculate_loss(amm.A, amm.fee, [candle], [oracle_price], 4, initial_state=amm.oracle_state())
 
 
 class AmmFeeTargetTest(unittest.TestCase):
     def test_execution_receives_market_price_with_only_external_cost(self):
         candles = [
-            [0, 100.0, 100.0, 95.0, 95.0, 1.0],
-            [180, 95.0, 105.0, 95.0, 105.0, 1.0],
+            [0, 100.0, 120.0, 80.0, 95.0, 1.0],
+            [180, 95.0, 120.0, 80.0, 105.0, 1.0],
         ]
         oracle_prices = [100.0, 101.0]
         candles_by_time = {candle[0]: candle for candle in candles}
@@ -52,7 +53,9 @@ class AmmFeeTargetTest(unittest.TestCase):
 
                     simulator = make_simulator(candles, oracle_prices, external_fee)
                     with patch.object(LendingAMM, "trade_to_price", autospec=True, side_effect=checked_trade):
-                        simulator.calculate_loss(210, fee, candles, oracle_prices, 4, multiplier)
+                        simulator.calculate_loss(
+                            210, fee, candles, oracle_prices, 4, multiplier, initial_state=simulator.oracle_states[0]
+                        )
 
                     self.assertEqual(directions, {False, True})
 
@@ -62,7 +65,7 @@ class AmmFeeTargetTest(unittest.TestCase):
             for memory_fee in (0.0, 0.02):
                 with self.subTest(is_up=is_up, memory_fee=memory_fee):
                     external_fee = 0.0005
-                    amm = LendingAMM(1.0, 50, 0.003, 0.0)
+                    amm = LendingAMM(1.0, 50, 0.003, 0.0, oracle_state=OracleState.initial(1.0, 0))
                     amm.min_band = amm.max_band = amm.active_band = 0
                     amm.bands_x[0] = amm.bands_y[0] = 1.0
                     amm.set_p_oracle(1.0, timestamp=0)
@@ -93,7 +96,7 @@ class AmmFeeTargetTest(unittest.TestCase):
                     self.assertAlmostEqual(amm.dynamic_fee(0, timestamp=60), fee)
 
     def test_market_inside_fee_spread_does_not_trade(self):
-        amm = LendingAMM(1.0, 50, 0.017, 0.0)
+        amm = LendingAMM(1.0, 50, 0.017, 0.0, oracle_state=OracleState.initial(1.0, 0))
         amm.min_band = amm.max_band = amm.active_band = 0
         amm.bands_x[0] = amm.bands_y[0] = 1.0
         amm.set_p_oracle(1.0, timestamp=0)
