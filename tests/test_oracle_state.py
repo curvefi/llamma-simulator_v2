@@ -36,6 +36,21 @@ def expected_opening_recovery(a, bands):
 
 
 class OracleStateTest(unittest.TestCase):
+    def test_existing_amm_constructor_keeps_its_initial_state(self):
+        amm = LendingAMM(100, 100, 0.001)
+        self.assertEqual((amm.p_oracle, amm.prev_p_oracle, amm.raw_p_oracle, amm.old_p_oracle), (100,) * 4)
+        self.assertEqual(amm.old_dfee, 0)
+        self.assertIsNone(amm.prev_p_oracle_time)
+        self.assertIsNone(amm.current_timestamp)
+        amm.set_p_oracle(101, 60)
+        self.assertEqual(amm.p_oracle, 101)
+        self.assertAlmostEqual(amm.old_dfee, 1 - (100 / 101) ** 3)
+
+    def test_direct_replay_without_history_starts_at_opening_oracle(self):
+        candles = [[60, 1.1, 1.1, 1.1, 1.1, 0], [120, 0.99, 1, 0.98, 0.99, 0]]
+        sim = simulator(candles, [1, 0.99])
+        self.assertEqual(sim.calculate_loss(100, 0.001, candles, [1, 0.99], 4), sim.single_run(100, 0.001, 0, 1, 4))
+
     def test_actual_history_retains_memory_independent_of_candidate(self):
         observations = [(0, 100), (60, 101), (120, 99), (300, 98), (360, 140)]
         expected = list(oracle_states(observations))
@@ -99,6 +114,29 @@ class OracleStateTest(unittest.TestCase):
                         self.assertEqual(current.p_top(n), phil.p_top(n))
                         self.assertEqual(current.p_bottom(n), phil.p_bottom(n))
                     self.assertEqual(current.oracle_state(), state)
+
+    def test_replay_anchors_to_effective_oracle_and_preserves_band_range(self):
+        # The raw oracle jumps to 4, but the AMM limits the opening value to
+        # 1.25. Neither the market price nor the unclamped value sets the grid.
+        candles = [[0, 1, 1, 1, 1, 0], [60, 1.1, 1.1, 1.1, 1.1, 0]]
+        sim = simulator(candles, [1, 4])
+        state = sim.oracle_states[1]
+        self.assertEqual(state.p_oracle, 1.25)
+        self.assertGreater(state.old_dfee, 0)
+        deposit = ConstantInitialLiquidity.deposit
+        for shift in (0, 0.05):
+            with self.subTest(shift=shift):
+                observed = []
+
+                def checked(liquidity, amm, amount):
+                    deposit(liquidity, amm, amount)
+                    observed.append((liquidity.p0, amm.p_base, amm.min_band, amm.max_band, amm.oracle_state()))
+                    self.assertEqual([amm.bands_y[n] for n in range(1, 5)], [0.25] * 4)
+
+                with patch.object(ConstantInitialLiquidity, "deposit", checked):
+                    sim.single_run(100, 0.001, 0.5, 0.5, 4, position_shift=shift)
+                p0 = state.p_oracle * (1 - shift)
+                self.assertEqual(observed, [(p0, p0 * (100 / 99 + 0.0001), 1, 4, state)])
 
     def test_score_preserves_terminal_recovery_objective(self):
         for a in (10, 100, 393, 600):

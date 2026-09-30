@@ -110,10 +110,13 @@ class Simulator:
         dynamic_fee_multiplier: float | None = None,
         position_shift: float = 0,  # [0, 1) how much lower from current prices
         *,
-        initial_state: OracleState,
+        initial_state: OracleState | None = None,
     ):
         if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
             raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
+        if initial_state is None:
+            # Direct callers without earlier history start with zero fee memory.
+            initial_state = OracleState.initial(oracle_prices_for_simulation[0], prices_for_simulation[0][0])
         if (
             initial_state.current_timestamp != prices_for_simulation[0][0]
             or initial_state.prev_p_oracle_time != prices_for_simulation[0][0]

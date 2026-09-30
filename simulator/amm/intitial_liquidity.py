@@ -15,7 +15,7 @@ class BaseRangeInitialLiquidity(ABC):
 class ConstantInitialLiquidity(BaseRangeInitialLiquidity):
 
     def deposit(self, amm: Any, initial_liquidity: float):
-        # Phil's oracle-anchored grid places an unshifted position in bands 1..N.
-        # Select that range directly, independently of the restored oracle memory.
+        # Preserve the simulator's bands 1..N without letting restored oracle
+        # memory move the position down an extra band via deposit_nrange().
         q = (amm.A - 1) / amm.A
         amm.deposit_range(initial_liquidity, self.p0 * q ** (self.dn - 1), self.p0)

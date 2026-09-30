@@ -7,7 +7,7 @@ from typing import NamedTuple
 def initial_recovery_coefficient(A: int, bands: int) -> float:
     """Initial recovery / opening oracle for the unshifted synthetic position.
 
-    Phil's placement selects bands 1 through N. The opening oracle lies just
+    The synthetic position uses bands 1 through N. The opening oracle lies just
     inside band 1; use its in-band recovery, then geometric recovery for 2..N.
     """
     q = (A - 1) / A
@@ -61,10 +61,18 @@ class LendingAMM:
         fee: float,
         dynamic_fee_multiplier: float | None = None,
         *,
-        oracle_state: OracleState,
+        oracle_state: OracleState | None = None,
     ):
         self.p_base = p_base
-        self.restore_oracle_state(oracle_state)
+        self.p_oracle = p_base
+        self.prev_p_oracle = p_base
+        self.raw_p_oracle = p_base
+        self.old_p_oracle = p_base
+        self.old_dfee = 0.0
+        self.prev_p_oracle_time: float | None = None
+        self.current_timestamp: float | None = None
+        if oracle_state is not None:
+            self.restore_oracle_state(oracle_state)
         self.A = A
         self.dynamic_fee_multiplier = dynamic_fee_multiplier if dynamic_fee_multiplier is not None else 0.25
         self.bands_x = defaultdict(float)
