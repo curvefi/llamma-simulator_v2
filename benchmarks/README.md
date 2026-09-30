@@ -42,13 +42,13 @@ On macOS arm64, CPython 3.11.15, after two warmup batches per revision:
 
 | Workload | Upstream | Previous PR | Updated PR | Upstream speedup | Additional speedup |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 2,000 synthetic windows, median of 7 trials | 4.029 s | 2.273 s | 1.415 s | 2.85× | 1.61× |
-| 4,000 historical windows, median of 3 trials | 7.262 s | 4.186 s | 2.502 s | 2.90× | 1.67× |
+| 2,000 synthetic windows, median of 7 trials | 3.778 s | 2.205 s | 1.369 s | 2.76× | 1.61× |
+| 4,000 historical windows, median of 3 trials | 7.293 s | 4.026 s | 2.373 s | 3.07× | 1.70× |
 
 The measured revisions are upstream `f18e1231bdc47798314463d1595c69b9dcaacd6f`,
 previous PR `e94f9d196750aba623d2b8bd3a3954e8b5abb65c` and updated runtime
-`debea182cbcd639af4c5d3089b8e8e877f5dbb2a`. Ordered losses match exactly across
-all three. [Pinned evidence and reproduction commands](https://github.com/wavey0x/llamma-simulator_v2/tree/ac5f0b03ab7305ccd46e04b72d51972a4362c2e7/benchmarks/evidence)
+`54eb3f7895badf9ed73a2713a7ce21fdfcc0c4f5`. Ordered losses match exactly across
+all three. [Pinned evidence and reproduction commands](https://github.com/wavey0x/llamma-simulator_v2/tree/95b7e4f960464910c184a1602d10035e4b00c008/benchmarks/evidence)
 include every timing, full loss arrays, randomized checks and exact historical
 inputs. The data lives on a separate evidence branch, outside this patch.
 
@@ -70,6 +70,6 @@ valuation states and 1,000 replays, including 19 pre-existing band-limit failure
 
 PyPy 7.3.21 on this host failed repeatability with the unchanged baseline alone:
 one of 800 losses changed by 0.0004841334007219533 between repeated replays.
-The benchmark intentionally fails rather than relaxing equality. Before/after
-losses matched exactly with `pypy3.11 --jit off`; no PyPy JIT speedup or parity
-claim is made here.
+The benchmark intentionally fails rather than relaxing equality. Earlier
+before/after checks matched exactly with `pypy3.11 --jit off`. Current performance
+acceptance is CPython-only; no PyPy JIT speedup or parity claim is made here.
