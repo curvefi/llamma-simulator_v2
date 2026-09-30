@@ -12,8 +12,7 @@ This uses only the standard library. It executes each revision's `LendingAMM`,
 liquidity class and existing `Simulator.calculate_loss` method, extracting the
 method to avoid importing unrelated data providers. Financial calculations are
 not copied into the benchmark. By default the candidate is the working tree;
-use `--candidate COMMIT` to pin it. `--baseline` accepts multiple revisions for
-a comparison against both upstream and an earlier patch.
+use `--candidate COMMIT` to pin it and `--baseline COMMIT` to select upstream.
 
 The fixed-seed workload combines A=10/100/300/600, fees=0.001/0.005, 30/60-minute
 windows, four bands, a 0.25 dynamic multiplier and a 0.0005 external fee.
@@ -40,16 +39,15 @@ conditions under `-O`.
 
 On macOS arm64, CPython 3.11.15, after two warmup batches per revision:
 
-| Workload | Upstream | Previous PR | Updated PR | Upstream speedup | Additional speedup |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 2,000 synthetic windows, median of 7 trials | 3.778 s | 2.205 s | 1.369 s | 2.76× | 1.61× |
-| 4,000 historical windows, median of 3 trials | 7.293 s | 4.026 s | 2.373 s | 3.07× | 1.70× |
+| Workload | Upstream | This PR | Speedup |
+| --- | ---: | ---: | ---: |
+| 2,000 synthetic windows, median of 7 trials | 3.778 s | 1.369 s | 2.76× |
+| 4,000 historical windows, median of 3 trials | 7.293 s | 2.373 s | 3.07× |
 
-The measured revisions are upstream `f18e1231bdc47798314463d1595c69b9dcaacd6f`,
-previous PR `e94f9d196750aba623d2b8bd3a3954e8b5abb65c` and updated runtime
-`54eb3f7895badf9ed73a2713a7ce21fdfcc0c4f5`. Ordered losses match exactly across
-all three. [Pinned evidence and reproduction commands](https://github.com/wavey0x/llamma-simulator_v2/tree/95b7e4f960464910c184a1602d10035e4b00c008/benchmarks/evidence)
-include every timing, full loss arrays, randomized checks and exact historical
+The measured revisions are upstream `f18e1231bdc47798314463d1595c69b9dcaacd6f`
+and this PR's runtime `54eb3f7895badf9ed73a2713a7ce21fdfcc0c4f5`.
+Ordered losses match exactly. [Pinned evidence and reproduction commands](https://github.com/wavey0x/llamma-simulator_v2/tree/dc8a6836399da123c9d5fa52682b69fa12e00468/benchmarks/evidence)
+include timings, full loss arrays, randomized checks and exact historical
 inputs. The data lives on a separate evidence branch, outside this patch.
 
 Historical replay uses LP candles with **upstream initialization**, not the
