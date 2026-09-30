@@ -1,13 +1,12 @@
 """Compare ordered losses and timings against a Git revision; no market data needed.
 
 Run: python benchmarks/benchmark_amm.py --baseline f18e123 --windows 400
-Optional: --modules before_amm after_amm benchmarks compiled copies of the same code.
 """
 
 import argparse
 import ast
+import gzip
 import hashlib
-import importlib
 import json
 import logging
 import math
@@ -83,65 +82,121 @@ def run(loss, context, tasks):
     ]
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline", required=True)
-    parser.add_argument("--windows", type=int, default=400)
-    parser.add_argument("--repeats", type=int, default=5)
-    parser.add_argument("--warmup", type=int, default=2)
-    parser.add_argument("--modules", nargs=2)
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
-    path = "simulator/amm/lending_amm.py"
-    sources = [source_at(args.baseline, path), source_at(None, path)]
-    amms = (
-        [importlib.import_module(name) for name in args.modules]
-        if args.modules
-        else [load_source(source, label) for source, label in zip(sources, ["baseline", "candidate"])]
-    )
-    if args.modules:
-        sources = [Path(module.__file__).with_name(module.__name__ + ".py").read_text() for module in amms]
-    simulator_sources = [source_at(ref, "simulator/amm/simulator.py") for ref in (args.baseline, None)]
-    liquidity = load_source(source_at(args.baseline, "simulator/amm/intitial_liquidity.py"), "liquidity")
-    context = SimpleNamespace(
-        initial_liquidity_class=liquidity.ConstantInitialLiquidity,
-        external_fee=0.0005,
-        log_enabled=False,
-        verbose=False,
-    )
-    functions = [
-        getattr(module, "calculate_loss", None) or loss_function(module.LendingAMM, source)
-        for module, source in zip(amms, simulator_sources)
-    ]
-    tasks = workload(args.windows)
-    expected = run(functions[0], context, tasks)
-    assert all(math.isfinite(value) for value in expected)
-    for _ in range(args.warmup):
-        for index, function in enumerate(functions):
-            assert run(function, context, tasks) == expected, f"Ordered losses changed during warmup: variant {index}"
-    timings = [[], []]
-    for trial in range(args.repeats):
-        for index in [0, 1] if trial % 2 == 0 else [1, 0]:
+def checked_losses(values, expected=None):
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("Nonfinite loss")
+    packed = struct.pack(f"<{len(values)}d", *values)
+    if expected is not None and packed != expected:
+        raise ValueError("Ordered losses changed")
+    return packed
+
+
+def measure(functions, contexts, tasks, warmup, repeats):
+    expected = run(functions[0], contexts[0], tasks)
+    if len(expected) != len(tasks):
+        raise ValueError("Expected one loss per window")
+    packed = checked_losses(expected)
+    for _ in range(warmup):
+        for function, context in zip(functions, contexts):
+            actual = run(function, context, tasks)
+            checked_losses(actual, packed)
+    timings = [[] for _ in functions]
+    for trial in range(repeats):
+        order = range(len(functions)) if trial % 2 == 0 else reversed(range(len(functions)))
+        for index in order:
             start = time.perf_counter()
-            actual = run(functions[index], context, tasks)
+            actual = run(functions[index], contexts[index], tasks)
             timings[index].append(time.perf_counter() - start)
-            assert actual == expected, "Ordered losses changed"
+            checked_losses(actual, packed)
     medians = list(map(statistics.median, timings))
-    receipt = {
-        "python": platform.python_implementation() + " " + platform.python_version(),
-        "machine": platform.machine(),
-        "baseline": args.baseline,
-        "windows": len(tasks),
-        "source_sha256": [hashlib.sha256(s.encode()).hexdigest() for s in sources],
-        "modules": args.modules,
-        "simulator_sha256": [hashlib.sha256(s.encode()).hexdigest() for s in simulator_sources],
-        "warmup_batches": args.warmup,
+    return {
         "seconds": timings,
         "median_seconds": medians,
-        "speedup": medians[0] / medians[1],
+        "speedup_vs_baseline": [medians[0] / value for value in medians],
         "ordered_losses_equal": True,
-        "loss_sha256": hashlib.sha256(struct.pack(f"<{len(expected)}d", *expected)).hexdigest(),
+        "ordered_losses": expected,
+        "loss_sha256": hashlib.sha256(packed).hexdigest(),
     }
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--baseline", required=True, nargs="+", help="One or more reference revisions")
+    parser.add_argument("--candidate", help="Candidate revision; defaults to working-tree source")
+    inputs = parser.add_mutually_exclusive_group()
+    inputs.add_argument("--windows", type=int, default=400)
+    inputs.add_argument("--workload", type=Path, help="JSON or JSON.gz containing tasks and provenance")
+    parser.add_argument("--repeats", type=int, default=5)
+    parser.add_argument("--warmup", type=int, default=2)
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args(argv)
+    if args.windows <= 0 or args.repeats <= 0 or args.warmup < 0:
+        parser.error("windows and repeats must be positive; warmup must be nonnegative")
+
+    revisions, functions, contexts = [], [], []
+    for ref in [*args.baseline, args.candidate]:
+        revision = subprocess.check_output(
+            ["git", "rev-parse", "--verify", f"{ref or 'HEAD'}^{{commit}}"], cwd=ROOT, text=True
+        ).strip()
+        sources = {
+            name: source_at(revision if ref else None, f"simulator/amm/{name}.py")
+            for name in ("lending_amm", "simulator", "intitial_liquidity")
+        }
+        revisions.append(
+            {
+                "revision": revision,
+                "working_tree": ref is None,
+                "source_sha256": {
+                    name: hashlib.sha256(source.encode()).hexdigest() for name, source in sources.items()
+                },
+            }
+        )
+        amm = load_source(sources["lending_amm"], "lending_amm")
+        liquidity = load_source(sources["intitial_liquidity"], "intitial_liquidity")
+        functions.append(loss_function(amm.LendingAMM, sources["simulator"]))
+        contexts.append(
+            SimpleNamespace(
+                initial_liquidity_class=liquidity.ConstantInitialLiquidity,
+                external_fee=0.0005,
+                log_enabled=False,
+                verbose=False,
+            )
+        )
+
+    if args.workload:
+        opener = gzip.open if args.workload.suffix == ".gz" else open
+        with opener(args.workload, "rt") as file:
+            inputs = json.load(file)
+        tasks, provenance = inputs["tasks"], inputs["provenance"]
+    else:
+        tasks, provenance = workload(args.windows), {"kind": "synthetic", "seed": 20260930}
+    if not tasks or any(not rows for _, _, rows in tasks):
+        parser.error("workload and every replay window must be nonempty")
+
+    receipt = {
+        "python": platform.python_implementation() + " " + platform.python_version(),
+        "platform": platform.platform(),
+        "revisions": revisions,
+        "windows": len(tasks),
+        "workload_sha256": hashlib.sha256(json.dumps(tasks, separators=(",", ":")).encode()).hexdigest(),
+        "provenance": provenance,
+        "settings": {
+            "bands": 4,
+            "dynamic_fee_multiplier": 0.25,
+            "external_fee": 0.0005,
+            "position_shift": 0,
+            "log_enabled": False,
+            "verbose": False,
+            "initial_liquidity": "ConstantInitialLiquidity",
+        },
+        "initialization": "Each revision's upstream calculate_loss; no application initialization adapter",
+        "warmup_batches": args.warmup,
+    }
+    receipt.update(measure(functions, contexts, tasks, args.warmup, args.repeats))
     if args.output:
         args.output.write_text(json.dumps(receipt, indent=2) + "\n")
     print(json.dumps(receipt, indent=2))
+
+
+if __name__ == "__main__":
+    main()

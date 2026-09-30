@@ -112,7 +112,6 @@ class Simulator:
         initial_all_x = amm.get_all_x()
 
         xs_normalized = []
-        fees = []
 
         def find_target_price(p, timestamp, is_up=True):
             # Find target band
@@ -171,7 +170,6 @@ class Simulator:
             #         assert amm.bands_x[n] == 0
             #         assert amm.bands_y[n] > 0
 
-            fees.append(amm.dynamic_fee(amm.active_band, timestamp=t))
             if self.log_enabled:
                 d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
                 current_x_total_normalized = amm.get_all_x() / initial_x_value
