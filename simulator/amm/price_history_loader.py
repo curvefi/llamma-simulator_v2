@@ -100,6 +100,9 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
         result = []
         window_high = max([p[2] for p in period])
         window_low = min([p[3] for p in period])
+        if window_high == window_low:
+            # A flat window has no drawdown to rescale.
+            return False, period
         current_drawdown = (window_high - window_low) / window_high
         rescaling_factor = self.max_drawdown / current_drawdown  # >= 1
 
