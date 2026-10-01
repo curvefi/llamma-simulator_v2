@@ -1,4 +1,5 @@
 import warnings
+from array import array
 from collections import defaultdict
 from math import floor, fsum, log
 from typing import NamedTuple
@@ -53,6 +54,66 @@ def _power(value, exponent):
     return value**exponent
 
 
+# One bounded geometry cache per process. The key includes every input;
+# changing AMM instances, A or p_base cannot reuse stale geometry.
+_top_A = 0.0
+_top_base = 0.0
+_top_values = array("d", [0.0]) * 1002
+_top_squares = array("d", [0.0]) * 1002
+_top_valid = array("b", [0]) * 1002
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def _band_top(p_base, A, n):
+    global _top_A, _top_base
+    if not -500 <= n <= 501:
+        return p_base * _power((A - 1) / A, n)
+    if A != _top_A or p_base != _top_base:
+        for i in range(1002):
+            _top_valid[i] = 0
+        _top_A = A
+        _top_base = p_base
+    i = n + 500
+    if not _top_valid[i]:
+        _top_values[i] = p_base * _power((A - 1) / A, n)
+        _top_squares[i] = _power(_top_values[i], 2)
+        _top_valid[i] = 1
+    return _top_values[i]
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def _band_square(p_base, A, n):
+    top = _band_top(p_base, A, n)
+    if -500 <= n <= 501:
+        return _top_squares[n + 500]
+    return _power(top, 2)
+
+
+# Last-value caches are separate from persistent exchange memory.
+_cube_price = 0.0
+_cube_value = 0.0
+_ratio_A = 0.0
+_ratio_value = 0.0
+
+
+def _cube(price):
+    global _cube_price, _cube_value
+    if price != _cube_price:
+        _cube_value = _power(price, 3)
+        _cube_price = price
+    return _cube_value
+
+
+def _ratio_square(A):
+    global _ratio_A, _ratio_value
+    if A != _ratio_A:
+        _ratio_value = _power(A / (A - 1), 2)
+        _ratio_A = A
+    return _ratio_value
+
+
 def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
     limited_price = price
     ratio = 0.0
@@ -71,6 +132,17 @@ def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
         ratio = min(max(ratio, 0.0), 1.0)
 
     return limited_price, ratio
+
+
+# Reuse a spot price only while every geometry and balance input agrees.
+_price_valid = False
+_price_A = 0
+_price_base = 0
+_price_oracle = 0
+_price_band = 0
+_price_x = 0
+_price_y = 0
+_price_value = 0.0
 
 
 class LendingAMM:
@@ -122,7 +194,7 @@ class LendingAMM:
     # Deposit:
     # - above active band - only in y,
     # - below active band - only in x
-    # - transform band prices: p_band = _power(p_oracle, 3) / _power(p_base, 2)
+    # - transform band prices: p_band = p_oracle**3 / p_base**2
     # - add transformation to get_band, get_band_n, deposit_range
     # - add y0 ("invariant") changing with p_oracle
     # - get_price depending on current state (band, x[band], y[band])
@@ -210,9 +282,8 @@ class LendingAMM:
             return 0.0
 
         # Matches on-chain: p_c_d = p_o**3 / p_o_up**2, p_c_u = p_c_d * (A / (A-1))**2
-        p_c_d = _power(p_oracle, 3) / _power(p_o_up, 2)
-        band_ratio = self.A / (self.A - 1)
-        p_c_u = p_c_d * _power(band_ratio, 2)
+        p_c_d = _cube(p_oracle) / _band_square(self.p_base, self.A, n_band)
+        p_c_u = p_c_d * _ratio_square(self.A)
 
         if p_oracle < p_c_d and p_c_d > 0:
             return (p_c_d - p_oracle) / p_c_d * self.dynamic_fee_multiplier
@@ -225,25 +296,24 @@ class LendingAMM:
         Lower price for the band at the current p_oracle
         """
         if p_oracle is None:
-            p_oracle = self.p_oracle
-        k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * _power(k, n_band)
-        return _power(p_oracle, 3) / _power(p_base, 2)
+            price = self.p_oracle
+        else:
+            price = p_oracle
+        return _cube(price) / _band_square(self.p_base, self.A, n_band)
 
     def p_up(self, n_band, p_oracle: float | None = None):
         """
         Upper price for the band at the current p_oracle
         """
         if p_oracle is None:
-            p_oracle = self.p_oracle
-        k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * _power(k, n_band + 1)
-        return _power(p_oracle, 3) / _power(p_base, 2)
+            price = self.p_oracle
+        else:
+            price = p_oracle
+        return _cube(price) / _band_square(self.p_base, self.A, n_band + 1)
 
     def p_top(self, n):
-        k = (self.A - 1) / self.A  # equal to (p_down / p_up)
         # Prices which show start and end of band when p_oracle = p
-        return self.p_base * _power(k, n)
+        return _band_top(self.p_base, self.A, n)
 
     def p_bottom(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
@@ -331,8 +401,21 @@ class LendingAMM:
         return value * p_top / p_oracle * (self.A - 1)
 
     def get_p(self, y0=None):
+        global _price_valid, _price_value
+        global _price_A, _price_base, _price_oracle, _price_band, _price_x, _price_y
         x = self.bands_x[self.active_band]
         y = self.bands_y[self.active_band]
+        if (
+            y0 is None
+            and _price_valid
+            and _price_A == self.A
+            and _price_base == self.p_base
+            and _price_oracle == self.p_oracle
+            and _price_band == self.active_band
+            and _price_x == x
+            and _price_y == y
+        ):
+            return _price_value
         if x == 0 and y == 0:
             result = _power(self.p_up(self.active_band) * self.p_down(self.active_band), 0.5)
         else:
@@ -341,6 +424,15 @@ class LendingAMM:
             else:
                 value = y0
             result = (self._get_f(value, self.active_band) + x) / (self._get_g(value, self.active_band) + y)
+        if y0 is None:
+            _price_A = self.A
+            _price_base = self.p_base
+            _price_oracle = self.p_oracle
+            _price_band = self.active_band
+            _price_x = x
+            _price_y = y
+            _price_value = result
+            _price_valid = True
         return result
 
     def trade_to_price(self, price) -> tuple:
