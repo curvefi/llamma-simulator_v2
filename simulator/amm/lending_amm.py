@@ -332,6 +332,8 @@ class LendingAMM:
         """
         x = self.bands_x[n]
         y = self.bands_y[n]
+        if x == 0 and y == 0:
+            return 0
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
@@ -339,9 +341,6 @@ class LendingAMM:
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
-            if x == 0 and y == 0:
-                return 0
-
             if p_o > p_o_up:
                 # all to y at constant p_o, then to target currency adiabatically
                 y_equiv = y
@@ -392,6 +391,8 @@ class LendingAMM:
         """
         x = self.bands_x[n]
         y = self.bands_y[n]
+        if x == 0 and y == 0:
+            return 0
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
@@ -399,9 +400,6 @@ class LendingAMM:
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
-            if x == 0 and y == 0:
-                return 0
-
             if p_o > p_o_up:
                 # all to y at constant p_o, then to target currency adiabatically
                 y_equiv = y
@@ -445,8 +443,10 @@ class LendingAMM:
             # Now adiabatic conversion from definitely in-band
             return x_o + y_o * sqrt(p_o_down * p_o)
 
+    # Include bands in either balance map, even outside the deposited range.
+    # Keep legacy bounds and ascending summation; do not populate unrepresented bands.
     def get_all_y(self):
-        return sum(self.get_y_up(i) for i in range(-500, 500))
+        return sum(self.get_y_up(i) for i in sorted(self.bands_x.keys() | self.bands_y.keys()) if -500 <= i < 500)
 
     def get_all_x(self):
-        return sum(self.get_x_down(i) for i in range(-500, 500))
+        return sum(self.get_x_down(i) for i in sorted(self.bands_x.keys() | self.bands_y.keys()) if -500 <= i < 500)
