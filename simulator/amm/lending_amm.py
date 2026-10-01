@@ -1,7 +1,22 @@
 import warnings
 from collections import defaultdict
-from math import floor, fsum, isfinite, log, sqrt
+from math import floor, fsum, log
 from typing import NamedTuple
+
+import cython
+
+if cython.compiled:
+    from cython.cimports.libc.math import isfinite
+    from cython.cimports.libc.math import sqrt as _sqrt
+else:
+    from math import isfinite
+    from math import sqrt as _sqrt
+
+
+def sqrt(value):
+    if value < 0:
+        raise ValueError("math domain error")
+    return _sqrt(value)
 
 
 def initial_recovery_coefficient(A: int, bands: int) -> float:
@@ -33,6 +48,11 @@ def fee_multiplier(fee: float) -> float:
     return 1 / max(1 - fee, 1e-18)
 
 
+def _power(value, exponent):
+    # A runtime exponent preserves Python's libm pow rounding in native builds.
+    return value**exponent
+
+
 def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
     limited_price = price
     ratio = 0.0
@@ -46,7 +66,7 @@ def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
             price_ratio = min_ratio
             limited_price = old_price / max_change
 
-        ratio = ((1.0 + old_dfee) - (price_ratio) ** (3)) * (dt / delay)
+        ratio = ((1.0 + old_dfee) - _power(price_ratio, 3)) * (dt / delay)
         # The on-chain cap of 1 - 1e-18 rounds to 1.0 as a float.
         ratio = min(max(ratio, 0.0), 1.0)
 
@@ -190,9 +210,9 @@ class LendingAMM:
             return 0.0
 
         # Matches on-chain: p_c_d = p_o**3 / p_o_up**2, p_c_u = p_c_d * (A / (A-1))**2
-        p_c_d = (p_oracle) ** (3) / (p_o_up) ** (2)
+        p_c_d = _power(p_oracle, 3) / _power(p_o_up, 2)
         band_ratio = self.A / (self.A - 1)
-        p_c_u = p_c_d * (band_ratio) ** (2)
+        p_c_u = p_c_d * _power(band_ratio, 2)
 
         if p_oracle < p_c_d and p_c_d > 0:
             return (p_c_d - p_oracle) / p_c_d * self.dynamic_fee_multiplier
@@ -207,8 +227,8 @@ class LendingAMM:
         if p_oracle is None:
             p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * (k) ** (n_band)
-        return (p_oracle) ** (3) / (p_base) ** (2)
+        p_base = self.p_base * _power(k, n_band)
+        return _power(p_oracle, 3) / _power(p_base, 2)
 
     def p_up(self, n_band, p_oracle: float | None = None):
         """
@@ -217,13 +237,13 @@ class LendingAMM:
         if p_oracle is None:
             p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * (k) ** (n_band + 1)
-        return (p_oracle) ** (3) / (p_base) ** (2)
+        p_base = self.p_base * _power(k, n_band + 1)
+        return _power(p_oracle, 3) / _power(p_base, 2)
 
     def p_top(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
         # Prices which show start and end of band when p_oracle = p
-        return self.p_base * (k) ** (n)
+        return self.p_base * _power(k, n)
 
     def p_bottom(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
@@ -274,8 +294,8 @@ class LendingAMM:
         # solve:
         # p_o * A * y0**2 - y0 * (p_top/p_o * (A-1) * x + p_o**2/p_top * A * y) - xy = 0
         a = p_o * A
-        b = p_top / p_o * (A - 1) * x + (p_o) ** (2) / p_top * A * y
-        D = (b) ** (2) + 4 * a * x * y
+        b = p_top / p_o * (A - 1) * x + _power(p_o, 2) / p_top * A * y
+        D = _power(b, 2) + 4 * a * x * y
         return (b + sqrt(D)) / (2 * a)
 
     def get_f(self, y0=None, n=None):
@@ -292,7 +312,7 @@ class LendingAMM:
     def _get_f(self, value, band):
         p_top = self.p_top(band)
         p_oracle = self.p_oracle
-        return value * (p_oracle) ** (2) / p_top * self.A
+        return value * _power(p_oracle, 2) / p_top * self.A
 
     def get_g(self, y0=None, n=None):
         if y0 is None:
@@ -314,7 +334,7 @@ class LendingAMM:
         x = self.bands_x[self.active_band]
         y = self.bands_y[self.active_band]
         if x == 0 and y == 0:
-            result = (self.p_up(self.active_band) * self.p_down(self.active_band)) ** (0.5)
+            result = _power(self.p_up(self.active_band) * self.p_down(self.active_band), 0.5)
         else:
             if y0 is None:
                 value = self.get_y0()
@@ -390,7 +410,7 @@ class LendingAMM:
                     break
 
                 # reduce y, increase x, go up
-                y_dest = (Inv / price) ** (0.5) - g
+                y_dest = _power(Inv / price, 0.5) - g
                 x_old = self.bands_x[n]
                 if y_dest >= 0:
                     # End the cycle
@@ -415,7 +435,7 @@ class LendingAMM:
                     break
 
                 # increase y, reduce x, go down
-                x_dest = (Inv * price) ** (0.5) - f
+                x_dest = _power(Inv * price, 0.5) - f
                 y_old = self.bands_y[n]
                 if x_dest >= 0:
                     # End the cycle
@@ -455,7 +475,7 @@ class LendingAMM:
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
-        p_current_mid = (p_o) ** (3) / (p_o_down) ** (2) * (self.A - 1) / self.A
+        p_current_mid = _power(p_o, 3) / _power(p_o_down, 2) * (self.A - 1) / self.A
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
@@ -514,7 +534,7 @@ class LendingAMM:
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
-        p_current_mid = (p_o) ** (3) / (p_o_down) ** (2) * (self.A - 1) / self.A
+        p_current_mid = _power(p_o, 3) / _power(p_o_down, 2) * (self.A - 1) / self.A
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
