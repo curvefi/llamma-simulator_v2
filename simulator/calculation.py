@@ -4,6 +4,7 @@ import logging
 from numpy import log10, logspace
 
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
+from simulator.amm.lending_amm import initial_recovery_coefficient
 from simulator.amm.price_history_loader import GenericPriceHistoryLoader, VolatilityPriceHistoryLoader
 from simulator.amm.price_oracle import EmaPriceOracle
 from simulator.amm.simulator import get_loss_rate, get_loss_rate_v2
@@ -66,12 +67,7 @@ class Calculator:
             else:
                 loss = get_loss_rate(**kwargs_with_fee)
 
-            # Simplified formula
-            # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
-            # More precise
-            bands_coefficient = (
-                sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
-            )
+            bands_coefficient = initial_recovery_coefficient(a, initial_liquidity_range)
             liquidation_discount = 1 - (1 - loss) * bands_coefficient
 
             logger.info(f"Params: {kwargs_with_fee}, loss: {loss}, liquidation discount: {liquidation_discount}")
@@ -144,12 +140,7 @@ class Calculator:
             else:
                 loss = get_loss_rate(**kwargs_with_a)
 
-            # Simplified formula
-            # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
-            # More precise
-            bands_coefficient = (
-                sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
-            )
+            bands_coefficient = initial_recovery_coefficient(a, initial_liquidity_range)
             borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
             logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")
@@ -212,12 +203,7 @@ class Calculator:
             }
             loss = get_loss_rate(**kwargs_with_a)
 
-            # Simplified formula
-            # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
-            # More precise
-            bands_coefficient = (
-                sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
-            )
+            bands_coefficient = initial_recovery_coefficient(a, initial_liquidity_range)
             borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
             logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")
@@ -279,12 +265,7 @@ class Calculator:
             }
             loss = get_loss_rate(**kwargs_with_a)
 
-            # Simplified formula
-            # bands_coefficient = (((A - 1) / A) ** range_size) ** 0.5
-            # More precise
-            bands_coefficient = (
-                sum(((a - 1) / a) ** (k + 0.5) for k in range(initial_liquidity_range)) / initial_liquidity_range
-            )
+            bands_coefficient = initial_recovery_coefficient(a, initial_liquidity_range)
             borrowed_adjusted_loss = 1 - (1 - loss) * bands_coefficient
 
             logger.info(f"Params: {kwargs_with_a}, loss: {loss}, borrowed loss: {borrowed_adjusted_loss}")

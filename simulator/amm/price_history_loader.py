@@ -30,14 +30,14 @@ class GenericPriceHistoryLoader(BasePriceHistoryLoader):
         # timestamp, OHLC, vol
         unfiltered_data = [[int(d[0])] + [float(x) for x in d[1:6]] for d in data]
         data = []
-        prev_time = 0
+        prev_time = None
         for d in unfiltered_data:
-            if d[0] >= prev_time:
+            if prev_time is None or d[0] > prev_time:
                 data.append(d)
                 prev_time = d[0]
         if self.add_reverse:
             t0 = data[-1][0]
-            data += [[t0 + (t0 - d[0])] + d[1:] for d in data[::-1]]
+            data += [[t0 + (t0 - d[0])] + d[1:] for d in data[-2::-1]]
 
         return data
 
@@ -100,6 +100,9 @@ class VolatilityPriceHistoryLoader(GenericPriceHistoryLoader):
         result = []
         window_high = max([p[2] for p in period])
         window_low = min([p[3] for p in period])
+        if window_high == window_low:
+            # A flat window has no drawdown to rescale.
+            return False, period
         current_drawdown = (window_high - window_low) / window_high
         rescaling_factor = self.max_drawdown / current_drawdown  # >= 1
 
