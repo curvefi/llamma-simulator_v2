@@ -33,6 +33,26 @@ def fee_multiplier(fee: float) -> float:
     return 1 / max(1 - fee, 1e-18)
 
 
+def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
+    limited_price = price
+    ratio = 0.0
+
+    if dt > 0 and old_price > 0:
+        price_ratio = min(old_price, price) / max(old_price, price)
+        if price > old_price and price_ratio < min_ratio:
+            price_ratio = min_ratio
+            limited_price = old_price * max_change
+        elif price < old_price and price_ratio < min_ratio:
+            price_ratio = min_ratio
+            limited_price = old_price / max_change
+
+        ratio = ((1.0 + old_dfee) - (price_ratio) ** (3)) * (dt / delay)
+        # The on-chain cap of 1 - 1e-18 rounds to 1.0 as a float.
+        ratio = min(max(ratio, 0.0), 1.0)
+
+    return limited_price, ratio
+
+
 class LendingAMM:
     PREV_P_O_DELAY = 2 * 60  # seconds
     MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
@@ -68,17 +88,21 @@ class LendingAMM:
         return OracleState(*(getattr(self, field) for field in OracleState._fields))
 
     def restore_oracle_state(self, state: OracleState):
-        if not all(isfinite(value) for value in state) or state.old_p_oracle <= 0 or not 0 <= state.old_dfee <= 1:
+        price = state.old_p_oracle
+        fee = state.old_dfee
+        timestamp = state.prev_p_oracle_time
+        if not isfinite(price) or not isfinite(fee) or not isfinite(timestamp) or price <= 0 or not 0 <= fee <= 1:
             raise ValueError("Invalid oracle state")
-        for field, value in zip(OracleState._fields, state):
-            setattr(self, field, value)
-        self.p_oracle = self.prev_p_oracle = self.raw_p_oracle = state.old_p_oracle
-        self.current_timestamp = state.prev_p_oracle_time
+        self.old_p_oracle = price
+        self.old_dfee = fee
+        self.prev_p_oracle_time = timestamp
+        self.p_oracle = self.prev_p_oracle = self.raw_p_oracle = price
+        self.current_timestamp = timestamp
 
     # Deposit:
     # - above active band - only in y,
     # - below active band - only in x
-    # - transform band prices: p_band = p_oracle**3 / p_base**2
+    # - transform band prices: p_band = _power(p_oracle, 3) / _power(p_base, 2)
     # - add transformation to get_band, get_band_n, deposit_range
     # - add y0 ("invariant") changing with p_oracle
     # - get_price depending on current state (band, x[band], y[band])
@@ -89,6 +113,9 @@ class LendingAMM:
 
     def set_p_oracle(self, p, timestamp: float | None = None):
         """Observe the external oracle without committing exchange memory."""
+        self._observe(p, timestamp)
+
+    def _observe(self, p, timestamp=None):
         timestamp = self._normalize_timestamp(timestamp)
         if (
             not isfinite(p)
@@ -100,11 +127,16 @@ class LendingAMM:
         self.raw_p_oracle = p
         self.current_timestamp = timestamp
         self.prev_p_oracle = self.p_oracle
-        self.p_oracle, _ = self._price_oracle_view(timestamp)
+        snapshot = self._price_oracle_view(timestamp)
+        self.p_oracle, _ = snapshot
+        return snapshot
 
     def dynamic_fee(self, n_band, timestamp: float | None = None):
         """Replicates on-chain logic: max(base fee, oracle-memory fee, distance fee)."""
         p_oracle, oracle_memory_fee = self._price_oracle_view(timestamp)
+        return self._dynamic_fee(n_band, p_oracle, oracle_memory_fee)
+
+    def _dynamic_fee(self, n_band, p_oracle, oracle_memory_fee):
         fee_with_memory = max(self.fee, oracle_memory_fee)
         distance_fee = self._distance_fee(p_oracle, n_band)
         return max(fee_with_memory, distance_fee)
@@ -119,31 +151,23 @@ class LendingAMM:
     def _memory_dt(self, timestamp: float | None) -> float:
         if self.prev_p_oracle_time is None or timestamp is None:
             return self.PREV_P_O_DELAY
-        elapsed = max(timestamp - self.prev_p_oracle_time, 0)
-        return self.PREV_P_O_DELAY - min(self.PREV_P_O_DELAY, elapsed)
+        current = timestamp
+        previous = self.prev_p_oracle_time
+        delay = self.PREV_P_O_DELAY
+        elapsed = max(current - previous, 0)
+        return delay - min(delay, elapsed)
 
     def _limit_price_oracle(self, price: float, timestamp: float | None) -> tuple[float, float]:
         timestamp = self._normalize_timestamp(timestamp)
-        old_price = self.old_p_oracle
-        old_dfee = self.old_dfee
-        dt = self._memory_dt(timestamp)
-        limited_price = price
-        ratio = 0.0
-
-        if dt > 0 and old_price > 0:
-            price_ratio = min(old_price, price) / max(old_price, price)
-            if price > old_price and price_ratio < self.MIN_PRICE_RATIO:
-                price_ratio = self.MIN_PRICE_RATIO
-                limited_price = old_price * self.MAX_P_O_CHANGE
-            elif price < old_price and price_ratio < self.MIN_PRICE_RATIO:
-                price_ratio = self.MIN_PRICE_RATIO
-                limited_price = old_price / self.MAX_P_O_CHANGE
-
-            ratio = ((1.0 + old_dfee) - price_ratio**3) * (dt / self.PREV_P_O_DELAY)
-            # The on-chain cap of 1 - 1e-18 rounds to 1.0 as a float.
-            ratio = min(max(ratio, 0.0), 1.0)
-
-        return limited_price, ratio
+        return _oracle_limit(
+            price,
+            self.old_p_oracle,
+            self.old_dfee,
+            self._memory_dt(timestamp),
+            self.PREV_P_O_DELAY,
+            self.MIN_PRICE_RATIO,
+            self.MAX_P_O_CHANGE,
+        )
 
     def _price_oracle_view(self, timestamp: float | None) -> tuple[float, float]:
         price = self.raw_p_oracle if self.raw_p_oracle is not None else self.p_oracle
@@ -166,9 +190,9 @@ class LendingAMM:
             return 0.0
 
         # Matches on-chain: p_c_d = p_o**3 / p_o_up**2, p_c_u = p_c_d * (A / (A-1))**2
-        p_c_d = (p_oracle**3) / (p_o_up**2)
+        p_c_d = (p_oracle) ** (3) / (p_o_up) ** (2)
         band_ratio = self.A / (self.A - 1)
-        p_c_u = p_c_d * band_ratio**2
+        p_c_u = p_c_d * (band_ratio) ** (2)
 
         if p_oracle < p_c_d and p_c_d > 0:
             return (p_c_d - p_oracle) / p_c_d * self.dynamic_fee_multiplier
@@ -183,8 +207,8 @@ class LendingAMM:
         if p_oracle is None:
             p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * k**n_band
-        return p_oracle**3 / p_base**2
+        p_base = self.p_base * (k) ** (n_band)
+        return (p_oracle) ** (3) / (p_base) ** (2)
 
     def p_up(self, n_band, p_oracle: float | None = None):
         """
@@ -193,13 +217,13 @@ class LendingAMM:
         if p_oracle is None:
             p_oracle = self.p_oracle
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
-        p_base = self.p_base * k ** (n_band + 1)
-        return p_oracle**3 / p_base**2
+        p_base = self.p_base * (k) ** (n_band + 1)
+        return (p_oracle) ** (3) / (p_base) ** (2)
 
     def p_top(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
         # Prices which show start and end of band when p_oracle = p
-        return self.p_base * k**n
+        return self.p_base * (k) ** (n)
 
     def p_bottom(self, n):
         k = (self.A - 1) / self.A  # equal to (p_down / p_up)
@@ -222,7 +246,7 @@ class LendingAMM:
         self.max_band = max(n1, n2)
         for i in range(n1, n2 + 1):
             assert self.bands_x[i] == 0
-            self.bands_y[i] += y
+            self.bands_y[i] = self.bands_y[i] + (y)
 
     def deposit_nrange(self, amount, p, dn):
         n_top = self.get_band_n(self.p_oracle) + 1
@@ -234,50 +258,70 @@ class LendingAMM:
         self.max_band = n2
         for i in range(n1, n2 + 1):
             assert self.bands_x[i] == 0
-            self.bands_y[i] += y
+            self.bands_y[i] = self.bands_y[i] + (y)
 
     def get_y0(self, n=None):
         A = self.A
         if n is None:
-            n = self.active_band
-        x = self.bands_x[n]
-        y = self.bands_y[n]
+            band = self.active_band
+        else:
+            band = n
+        x = self.bands_x[band]
+        y = self.bands_y[band]
         p_o = self.p_oracle
-        p_top = self.p_top(n)
+        p_top = self.p_top(band)
 
         # solve:
         # p_o * A * y0**2 - y0 * (p_top/p_o * (A-1) * x + p_o**2/p_top * A * y) - xy = 0
         a = p_o * A
-        b = p_top / p_o * (A - 1) * x + p_o**2 / p_top * A * y
-        D = b**2 + 4 * a * x * y
+        b = p_top / p_o * (A - 1) * x + (p_o) ** (2) / p_top * A * y
+        D = (b) ** (2) + 4 * a * x * y
         return (b + sqrt(D)) / (2 * a)
 
     def get_f(self, y0=None, n=None):
         if y0 is None:
-            y0 = self.get_y0()
+            value = self.get_y0()
+        else:
+            value = y0
         if n is None:
-            n = self.active_band
-        p_top = self.p_top(n)
+            band = self.active_band
+        else:
+            band = n
+        return self._get_f(value, band)
+
+    def _get_f(self, value, band):
+        p_top = self.p_top(band)
         p_oracle = self.p_oracle
-        return y0 * p_oracle**2 / p_top * self.A
+        return value * (p_oracle) ** (2) / p_top * self.A
 
     def get_g(self, y0=None, n=None):
         if y0 is None:
-            y0 = self.get_y0()
+            value = self.get_y0()
+        else:
+            value = y0
         if n is None:
-            n = self.active_band
-        p_top = self.p_top(n)
+            band = self.active_band
+        else:
+            band = n
+        return self._get_g(value, band)
+
+    def _get_g(self, value, band):
+        p_top = self.p_top(band)
         p_oracle = self.p_oracle
-        return y0 * p_top / p_oracle * (self.A - 1)
+        return value * p_top / p_oracle * (self.A - 1)
 
     def get_p(self, y0=None):
         x = self.bands_x[self.active_band]
         y = self.bands_y[self.active_band]
         if x == 0 and y == 0:
-            return (self.p_up(self.active_band) * self.p_down(self.active_band)) ** 0.5
-        if y0 is None:
-            y0 = self.get_y0()
-        return (self.get_f(y0) + x) / (self.get_g(y0) + y)
+            result = (self.p_up(self.active_band) * self.p_down(self.active_band)) ** (0.5)
+        else:
+            if y0 is None:
+                value = self.get_y0()
+            else:
+                value = y0
+            result = (self._get_f(value, self.active_band) + x) / (self._get_g(value, self.active_band) + y)
+        return result
 
     def trade_to_price(self, price) -> tuple:
         """
@@ -330,8 +374,8 @@ class LendingAMM:
                 continue
 
             y0 = self.get_y0()
-            g = self.get_g(y0)
-            f = self.get_f(y0)
+            g = self._get_g(y0, n)
+            f = self._get_f(y0, n)
             # (f + x)(g + y) = const = p_oracle * A**2 * y0**2 = I
             Inv = (f + x) * (g + y)
             # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
@@ -346,7 +390,7 @@ class LendingAMM:
                     break
 
                 # reduce y, increase x, go up
-                y_dest = (Inv / price) ** 0.5 - g
+                y_dest = (Inv / price) ** (0.5) - g
                 x_old = self.bands_x[n]
                 if y_dest >= 0:
                     # End the cycle
@@ -371,7 +415,7 @@ class LendingAMM:
                     break
 
                 # increase y, reduce x, go down
-                x_dest = (Inv * price) ** 0.5 - f
+                x_dest = (Inv * price) ** (0.5) - f
                 y_old = self.bands_y[n]
                 if x_dest >= 0:
                     # End the cycle
@@ -411,7 +455,7 @@ class LendingAMM:
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
-        p_current_mid = p_o**3 / p_o_down**2 * (self.A - 1) / self.A
+        p_current_mid = (p_o) ** (3) / (p_o_down) ** (2) * (self.A - 1) / self.A
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
@@ -429,8 +473,8 @@ class LendingAMM:
                 return x_equiv * sqrt_band_ratio / p_o_up
 
         y0 = self.get_y0(n)
-        g = self.get_g(y0, n)
-        f = self.get_f(y0, n)
+        g = self._get_g(y0, n)
+        f = self._get_f(y0, n)
         # (f + x)(g + y) = const = p_top * A**2 * y0**2 = I
         Inv = (f + x) * (g + y)
         # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
@@ -470,7 +514,7 @@ class LendingAMM:
         p_o = self.p_oracle
         p_o_up = self.p_top(n)
         p_o_down = p_o_up * (self.A - 1) / self.A
-        p_current_mid = p_o**3 / p_o_down**2 * (self.A - 1) / self.A
+        p_current_mid = (p_o) ** (3) / (p_o_down) ** (2) * (self.A - 1) / self.A
         sqrt_band_ratio = sqrt(self.A / (self.A - 1))
 
         if x == 0 or y == 0:
@@ -488,8 +532,8 @@ class LendingAMM:
                 return x_equiv
 
         y0 = self.get_y0(n)
-        g = self.get_g(y0, n)
-        f = self.get_f(y0, n)
+        g = self._get_g(y0, n)
+        f = self._get_f(y0, n)
         # (f + x)(g + y) = const = p_top * A**2 * y0**2 = I
         Inv = (f + x) * (g + y)
         # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
@@ -520,7 +564,40 @@ class LendingAMM:
     # Include bands in either balance map, even outside the deposited range.
     # Keep legacy bounds and ascending summation; do not populate unrepresented bands.
     def get_all_y(self):
-        return sum(self.get_y_up(i) for i in sorted(self.bands_x.keys() | self.bands_y.keys()) if -500 <= i < 500)
+        total = 0.0
+        for i in sorted(self.bands_x.keys() | self.bands_y.keys()):
+            if -500 <= i < 500:
+                total += self.get_y_up(i)
+        return total
 
     def get_all_x(self):
-        return sum(self.get_x_down(i) for i in sorted(self.bands_x.keys() | self.bands_y.keys()) if -500 <= i < 500)
+        total = 0.0
+        for i in sorted(self.bands_x.keys() | self.bands_y.keys()):
+            if -500 <= i < 500:
+                total += self.get_x_down(i)
+        return total
+
+
+def find_target_price(amm, p, p_oracle, memory_fee, is_up=True):
+    # Find target band
+    if is_up:
+        for n in range(amm.max_band, amm.min_band - 1, -1):
+            p_down = amm.p_down(n)
+            target = p / fee_multiplier(amm._dynamic_fee(n, p_oracle, memory_fee))
+
+            if target > p_down:
+                return target
+
+    else:
+        for n in range(amm.min_band, amm.max_band + 1):
+            p_up = amm.p_up(n)
+            target = p * fee_multiplier(amm._dynamic_fee(n, p_oracle, memory_fee))
+
+            if target < p_up:
+                return target
+
+    # price is outside of liquidity
+    if is_up:
+        return p / fee_multiplier(amm._dynamic_fee(amm.min_band, p_oracle, memory_fee))
+    else:
+        return p * fee_multiplier(amm._dynamic_fee(amm.max_band, p_oracle, memory_fee))

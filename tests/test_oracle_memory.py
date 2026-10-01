@@ -107,15 +107,15 @@ class OracleMemoryTest(unittest.TestCase):
             events.append(("exchange", amm.oracle_state()))
             return result
 
-        quote = LendingAMM.dynamic_fee
+        quote = LendingAMM._dynamic_fee
 
-        def checked_quote(amm, n, timestamp=None):
+        def checked_quote(amm, n, p_oracle, memory_fee):
             events.append(("quote", amm.oracle_state()))
-            return quote(amm, n, timestamp)
+            return quote(amm, n, p_oracle, memory_fee)
 
         with (
             patch.object(LendingAMM, "trade_to_price", checked_trade),
-            patch.object(LendingAMM, "dynamic_fee", checked_quote),
+            patch.object(LendingAMM, "_dynamic_fee", checked_quote),
         ):
             sim.calculate_loss(100, 0.003, bars, [0.6], 4, initial_state=OracleState.initial(1, 0))
         exchanges = [i for i, (event, _) in enumerate(events) if event == "exchange"]
