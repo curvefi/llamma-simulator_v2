@@ -237,10 +237,6 @@ _price_value = 0.0
 
 
 class LendingAMM:
-    PREV_P_O_DELAY = 2 * 60  # seconds
-    MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
-    MIN_PRICE_RATIO = 1 / MAX_P_O_CHANGE
-
     def __init__(
         self,
         p_base: float,
@@ -250,6 +246,9 @@ class LendingAMM:
         *,
         oracle_state: OracleState | None = None,
     ):
+        self.PREV_P_O_DELAY = 2 * 60  # seconds
+        self.MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
+        self.MIN_PRICE_RATIO = 1 / self.MAX_P_O_CHANGE
         self.p_base = p_base
         self.p_oracle = p_base
         self.prev_p_oracle = p_base
