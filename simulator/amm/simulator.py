@@ -1,12 +1,13 @@
 import logging
 import random
 from datetime import datetime
+from math import isfinite
 from multiprocessing import Pool
 
 import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
-from .lending_amm import LendingAMM, fee_multiplier
+from .lending_amm import LendingAMM, OracleState, fee_multiplier
 from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
@@ -50,6 +51,19 @@ class Simulator:
 
         self.prices = self.load_prices()
         self.oracle_prices = self.calculate_oracle_price(self.prices)
+        if len(self.prices) != len(self.oracle_prices):
+            raise ValueError("Candle and oracle observations do not align")
+        first = next((i for i, value in enumerate(self.oracle_prices) if value is not None), len(self.prices))
+        self.prices = self.prices[first:]
+        self.oracle_prices = self.oracle_prices[first:]
+        if not self.prices or any(value is None for value in self.oracle_prices):
+            raise ValueError("No complete causal oracle history for replay")
+        previous_timestamp = float("-inf")
+        for row, price in zip(self.prices, self.oracle_prices):
+            timestamp = row[0]
+            if not isfinite(price) or price <= 0 or not isfinite(timestamp) or timestamp <= previous_timestamp:
+                raise ValueError("Oracle history must have positive prices and increasing finite timestamps")
+            previous_timestamp = timestamp
 
     def load_prices(self) -> list:
         return self.price_history_loader.load_prices()
@@ -99,20 +113,33 @@ class Simulator:
         initial_liquidity_range: int,  # p0 then n number of bands
         dynamic_fee_multiplier: float | None = None,
         position_shift: float = 0,  # [0, 1) how much lower from current prices
+        *,
+        initial_state: OracleState | None = None,
     ):
-        p0 = prices_for_simulation[0][1] * (1 - position_shift)
+        if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
+            raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
+        timestamp, oracle_price = prices_for_simulation[0][0], oracle_prices_for_simulation[0]
+        if initial_state is None:
+            # Synthetic windows start with zero memory; observations do not
+            # reveal the exchanges needed to reconstruct earlier AMM memory.
+            initial_state = OracleState.initial(oracle_price, timestamp)
+        if initial_state.prev_p_oracle_time > timestamp:
+            raise ValueError("Starting oracle state is later than the first candle")
+        amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+        amm.set_p_oracle(oracle_price, timestamp=timestamp)
+        p0 = amm.p_oracle * (1 - position_shift)
 
         initial_y0 = 1.0  # 1 ETH
-        p_base = p0 * (A / (A - 1) + 1e-4)
-        initial_x_value = initial_y0 * p_base
-        amm = LendingAMM(p_base, A, fee, dynamic_fee_multiplier)
+        amm.p_base = p0 * (A / (A - 1) + 1e-4)
+        initial_x_value = initial_y0 * amm.p_base
 
         # Fill ticks with liquidity
         self.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
         initial_all_x = amm.get_all_x()
+        if not isfinite(initial_all_x) or initial_all_x <= 0:
+            raise ValueError("Initial recovery value must be finite and positive")
 
         xs_normalized = []
-        fees = []
 
         def find_target_price(p, timestamp, is_up=True):
             # Find target band
@@ -139,13 +166,15 @@ class Simulator:
                 return p * fee_multiplier(amm.dynamic_fee(amm.max_band, timestamp=timestamp))
 
         # <----------------- Calculation ----------------->
-        for (t, open, high, low, close, vol), oracle_price in zip(prices_for_simulation, oracle_prices_for_simulation):
-            amm.set_p_oracle(oracle_price, timestamp=t)
+        for i, ((t, open, high, low, close, vol), oracle_price) in enumerate(
+            zip(prices_for_simulation, oracle_prices_for_simulation)
+        ):
+            if i:
+                amm.set_p_oracle(oracle_price, timestamp=t)
 
             high_external = high * (1 - self.external_fee)
             low_external = low * (1 + self.external_fee)
             high = find_target_price(high_external, t, is_up=True)
-            low = find_target_price(low_external, t, is_up=False)
 
             # Use fee-adjusted targets only to check profitability. The AMM
             # applies its own per-band fee inside trade_to_price().
@@ -159,6 +188,7 @@ class Simulator:
             #         assert amm.bands_y[n] == 0
             #         assert amm.bands_x[n] > 0
 
+            low = find_target_price(low_external, t, is_up=False)
             if low < amm.get_p():
                 amm.trade_to_price(low_external)
 
@@ -169,9 +199,8 @@ class Simulator:
             #         assert amm.bands_x[n] == 0
             #         assert amm.bands_y[n] > 0
 
-            d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
-            fees.append(amm.dynamic_fee(amm.active_band, timestamp=t))
             if self.log_enabled:
+                d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
                 current_x_total_normalized = amm.get_all_x() / initial_x_value
                 logger.info(
                     f"Current x total for {d}: {current_x_total_normalized:.4f}, oracle price: {oracle_price:.2f}, amm_price: {amm.get_p():.2f}"
@@ -185,6 +214,8 @@ class Simulator:
             logger.info(f"Xs after trades list: {xs_normalized}")
 
         loss = 1 - amm.get_all_x() / initial_all_x
+        if not isfinite(loss):
+            raise ValueError("Final loss is not finite")
         return loss
 
     def single_run_kw(self, kw):
@@ -246,7 +277,7 @@ class SimulatorV2(Simulator):
         )
 
     def single_run_v2_kw(self, kw):
-        return self.single_run(**kw)
+        return self.single_run_v2(**kw)
 
 
 def get_loss_rate(
@@ -305,17 +336,10 @@ def get_loss_rate(
     else:
         results = []
         for kw in kwargs_list:
-            try:
-                sr_result = simulator.single_run(**kw)
-                if simulator.log_enabled:
-                    logger.info(
-                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
-                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
-                    )
-                results.append(sr_result)
-            except Exception as e:
-                logger.warning(e)
-                results.append(0)
+            sr_result = simulator.single_run(**kw)
+            if simulator.log_enabled:
+                logger.info(f"Results A:{kw['A']}, position_start:{kw['position_start']}: {sr_result}")
+            results.append(sr_result)
 
     if not n_top_samples:
         n_top_samples = samples // 20
@@ -378,17 +402,10 @@ def get_loss_rate_v2(
     else:
         results = []
         for kw in kwargs_list:
-            try:
-                sr_result = simulator.single_run_v2(**kw)
-                if simulator.log_enabled:
-                    logger.info(
-                        f"Results A:{kw['A']}, position_start:{kw['position_start']}, "
-                        f"position_period:{kw['position_period']}: {kw['sr_result']}"
-                    )
-                results.append(sr_result)
-            except Exception as e:
-                logger.warning(e)
-                results.append(0)
+            sr_result = simulator.single_run_v2(**kw)
+            if simulator.log_enabled:
+                logger.info(f"Results A:{kw['A']}, position_start:{kw['position_start']}: {sr_result}")
+            results.append(sr_result)
 
     if not n_top_samples:
         results = [r for r in results if r > 0]
