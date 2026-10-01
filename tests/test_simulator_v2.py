@@ -51,6 +51,8 @@ class SimulatorV2Test(unittest.TestCase):
 
     def test_worker_entry_uses_transformed_prices(self):
         simulator = make_simulator()
+        # Keep this case trading after oracle-anchored initialization too.
+        simulator.oracle_prices = [97.0] * len(simulator.prices)
         kwargs = arguments(0.5)
         original = simulator.prices[30:]
         is_down, transformed = simulator.price_history_loader.change_period(original)

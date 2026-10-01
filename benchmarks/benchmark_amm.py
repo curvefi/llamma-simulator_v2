@@ -43,7 +43,7 @@ def loss_function(amm, source):
     )
     # Execute the existing method unchanged, without importing unrelated data providers.
     module = ast.Module(body=[method], type_ignores=[])
-    scope = {"LendingAMM": amm, "datetime": datetime, "logger": logging.getLogger("benchmark")}
+    scope = {**vars(amm), "datetime": datetime, "isfinite": math.isfinite, "logger": logging.getLogger("benchmark")}
     exec(compile(module, "<Simulator.calculate_loss>", "exec"), scope)
     return scope["calculate_loss"]
 
@@ -153,7 +153,7 @@ def main(argv=None):
         )
         amm = load_source(sources["lending_amm"], "lending_amm")
         liquidity = load_source(sources["intitial_liquidity"], "intitial_liquidity")
-        functions.append(loss_function(amm.LendingAMM, sources["simulator"]))
+        functions.append(loss_function(amm, sources["simulator"]))
         contexts.append(
             SimpleNamespace(
                 initial_liquidity_class=liquidity.ConstantInitialLiquidity,

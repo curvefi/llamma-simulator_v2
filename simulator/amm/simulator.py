@@ -7,7 +7,7 @@ from multiprocessing import Pool
 import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
-from .lending_amm import LendingAMM, OracleState
+from .lending_amm import LendingAMM, OracleState, fee_multiplier
 from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
@@ -146,26 +146,24 @@ class Simulator:
             if is_up:
                 for n in range(amm.max_band, amm.min_band - 1, -1):
                     p_down = amm.p_down(n)
-                    d_fee = amm.dynamic_fee(n, timestamp=timestamp)
-                    p_down_with_fee = p_down * (1 + d_fee)
+                    target = p / fee_multiplier(amm.dynamic_fee(n, timestamp=timestamp))
 
-                    if p > p_down_with_fee:
-                        return p * (1 - d_fee)
+                    if target > p_down:
+                        return target
 
             else:
                 for n in range(amm.min_band, amm.max_band + 1):
                     p_up = amm.p_up(n)
-                    d_fee = amm.dynamic_fee(n, timestamp=timestamp)
-                    p_up_ = p_up * (1 - d_fee)
+                    target = p * fee_multiplier(amm.dynamic_fee(n, timestamp=timestamp))
 
-                    if p < p_up_:
-                        return p * (1 + d_fee)
+                    if target < p_up:
+                        return target
 
             # price is outside of liquidity
             if is_up:
-                return p * (1 - amm.dynamic_fee(amm.min_band, timestamp=timestamp))
+                return p / fee_multiplier(amm.dynamic_fee(amm.min_band, timestamp=timestamp))
             else:
-                return p * (1 + amm.dynamic_fee(amm.max_band, timestamp=timestamp))
+                return p * fee_multiplier(amm.dynamic_fee(amm.max_band, timestamp=timestamp))
 
         # <----------------- Calculation ----------------->
         for i, ((t, open, high, low, close, vol), oracle_price) in enumerate(
