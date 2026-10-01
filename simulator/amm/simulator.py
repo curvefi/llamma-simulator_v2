@@ -246,7 +246,7 @@ class SimulatorV2(Simulator):
         )
 
     def single_run_v2_kw(self, kw):
-        return self.single_run(**kw)
+        return self.single_run_v2(**kw)
 
 
 def get_loss_rate(
