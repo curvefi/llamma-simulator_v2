@@ -1,7 +1,7 @@
 import warnings
 from array import array
-from collections import defaultdict
 from math import floor, fsum, log
+from operator import index
 from typing import NamedTuple
 
 import cython
@@ -134,6 +134,97 @@ def _oracle_limit(price, old_price, old_dfee, dt, delay, min_ratio, max_change):
     return limited_price, ratio
 
 
+class BandBalances:
+    """Integer band balances with dense trading buffers and sparse overflow.
+
+    Missing reads insert zero, as with defaultdict(float). Track represented
+    bands separately so valuation preserves the original key set and order.
+    """
+
+    def __init__(self):
+        self._values = array("d", [0.0]) * 1001
+        self._present = array("b", [0]) * 1001
+        self._keys = set()
+        self._overflow = {}
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def read(self, n):
+        if -500 <= n <= 500:
+            i = n + 500
+            if not self._present[i]:
+                self._keys.add(n)
+                self._present[i] = 1
+            return self._values[i]
+        if n not in self._overflow:
+            self._keys.add(n)
+            self._overflow[n] = 0.0
+        return self._overflow[n]
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    def write(self, n, value):
+        if -500 <= n <= 500:
+            i = n + 500
+            if not self._present[i]:
+                self._keys.add(n)
+                self._present[i] = 1
+            self._values[i] = value
+        else:
+            self._keys.add(n)
+            self._overflow[n] = value
+
+    def clear(self):
+        for n in self._keys:
+            if -500 <= n <= 500:
+                self._values[n + 500] = 0.0
+                self._present[n + 500] = 0
+        self._keys.clear()
+        self._overflow.clear()
+
+    def __getitem__(self, n):
+        return self.read(index(n))
+
+    def __setitem__(self, n, value):
+        self.write(index(n), value)
+
+    def __delitem__(self, n):
+        n = index(n)
+        self._keys.remove(n)
+        if -500 <= n <= 500:
+            self._present[n + 500] = 0
+            self._values[n + 500] = 0.0
+        else:
+            del self._overflow[n]
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._keys)
+
+    def keys(self):
+        return self._keys.copy()
+
+    def values(self):
+        return [self.read(n) for n in self._keys]
+
+    def items(self):
+        return [(n, self.read(n)) for n in self._keys]
+
+    def update(self, values):
+        for n, value in dict(values).items():
+            self.write(index(n), value)
+
+    def __eq__(self, other):
+        return dict(self) == dict(other)
+
+    def __deepcopy__(self, memo):
+        result = BandBalances()
+        result.update(self)
+        return result
+
+
 # Reuse a spot price only while every geometry and balance input agrees.
 _price_valid = False
 _price_A = 0
@@ -171,8 +262,8 @@ class LendingAMM:
             self.restore_oracle_state(oracle_state)
         self.A = A
         self.dynamic_fee_multiplier = dynamic_fee_multiplier if dynamic_fee_multiplier is not None else 0.25
-        self.bands_x = defaultdict(float)
-        self.bands_y = defaultdict(float)
+        self.bands_x = BandBalances()
+        self.bands_y = BandBalances()
         self.active_band = 0
         self.fee = fee
 
@@ -335,8 +426,8 @@ class LendingAMM:
         self.min_band = min(n1, n2)
         self.max_band = max(n1, n2)
         for i in range(n1, n2 + 1):
-            assert self.bands_x[i] == 0
-            self.bands_y[i] = self.bands_y[i] + (y)
+            assert self.bands_x.read(i) == 0
+            self.bands_y.write(i, self.bands_y.read(i) + y)
 
     def deposit_nrange(self, amount, p, dn):
         n_top = self.get_band_n(self.p_oracle) + 1
@@ -347,8 +438,8 @@ class LendingAMM:
         self.min_band = n1
         self.max_band = n2
         for i in range(n1, n2 + 1):
-            assert self.bands_x[i] == 0
-            self.bands_y[i] = self.bands_y[i] + (y)
+            assert self.bands_x.read(i) == 0
+            self.bands_y.write(i, self.bands_y.read(i) + y)
 
     def get_y0(self, n=None):
         A = self.A
@@ -356,8 +447,8 @@ class LendingAMM:
             band = self.active_band
         else:
             band = n
-        x = self.bands_x[band]
-        y = self.bands_y[band]
+        x = self.bands_x.read(band)
+        y = self.bands_y.read(band)
         p_o = self.p_oracle
         p_top = self.p_top(band)
 
@@ -403,8 +494,8 @@ class LendingAMM:
     def get_p(self, y0=None):
         global _price_valid, _price_value
         global _price_A, _price_base, _price_oracle, _price_band, _price_x, _price_y
-        x = self.bands_x[self.active_band]
-        y = self.bands_y[self.active_band]
+        x = self.bands_x.read(self.active_band)
+        y = self.bands_y.read(self.active_band)
         if (
             y0 is None
             and _price_valid
@@ -448,7 +539,7 @@ class LendingAMM:
         self.p_oracle, oracle_memory_fee = snapshot
         original_band = self.active_band
 
-        if self.bands_x[self.active_band] == 0 and self.bands_y[self.active_band] == 0:
+        if self.bands_x.read(self.active_band) == 0 and self.bands_y.read(self.active_band) == 0:
             # If current band is empty - steps are determined by whether current price is higher or lower than
             # boundaries
             if price > self.p_up(self.active_band):
@@ -476,8 +567,8 @@ class LendingAMM:
             n = self.active_band
             assert -500 < n < 500, "active band should not exceed 500"
 
-            x = self.bands_x[n]
-            y = self.bands_y[n]
+            x = self.bands_x.read(n)
+            y = self.bands_y.read(n)
 
             if x == 0 and y == 0:
                 if self.p_down(n) <= price <= self.p_up(n):
@@ -503,22 +594,22 @@ class LendingAMM:
 
                 # reduce y, increase x, go up
                 y_dest = _power(Inv / price, 0.5) - g
-                x_old = self.bands_x[n]
+                x_old = self.bands_x.read(n)
                 if y_dest >= 0:
                     # End the cycle
-                    self.bands_y[n] = y_dest
-                    self.bands_x[n] = Inv / (g + y_dest) - f
-                    delta_x = self.bands_x[n] - x_old
-                    self.bands_x[n] = x_old + delta_x * antifee
-                    dx += self.bands_x[n] - x
-                    dy += self.bands_y[n] - y
+                    self.bands_y.write(n, y_dest)
+                    self.bands_x.write(n, Inv / (g + y_dest) - f)
+                    delta_x = self.bands_x.read(n) - x_old
+                    self.bands_x.write(n, x_old + delta_x * antifee)
+                    dx += self.bands_x.read(n) - x
+                    dy += self.bands_y.read(n) - y
                     break
 
                 else:
-                    self.bands_y[n] = 0
-                    self.bands_x[n] = Inv / g - f
-                    delta_x = self.bands_x[n] - x_old
-                    self.bands_x[n] = x_old + delta_x * antifee
+                    self.bands_y.write(n, 0)
+                    self.bands_x.write(n, Inv / g - f)
+                    delta_x = self.bands_x.read(n) - x_old
+                    self.bands_x.write(n, x_old + delta_x * antifee)
                     self.active_band += 1
 
             else:  # down
@@ -528,26 +619,26 @@ class LendingAMM:
 
                 # increase y, reduce x, go down
                 x_dest = _power(Inv * price, 0.5) - f
-                y_old = self.bands_y[n]
+                y_old = self.bands_y.read(n)
                 if x_dest >= 0:
                     # End the cycle
-                    self.bands_x[n] = x_dest
-                    self.bands_y[n] = Inv / (f + x_dest) - g
-                    delta_y = self.bands_y[n] - y_old
-                    self.bands_y[n] = y_old + delta_y * antifee
-                    dx += self.bands_x[n] - x
-                    dy += self.bands_y[n] - y
+                    self.bands_x.write(n, x_dest)
+                    self.bands_y.write(n, Inv / (f + x_dest) - g)
+                    delta_y = self.bands_y.read(n) - y_old
+                    self.bands_y.write(n, y_old + delta_y * antifee)
+                    dx += self.bands_x.read(n) - x
+                    dy += self.bands_y.read(n) - y
                     break
 
                 else:
-                    self.bands_x[n] = 0
-                    self.bands_y[n] = Inv / f - g
-                    delta_y = self.bands_y[n] - y_old
-                    self.bands_y[n] = y_old + delta_y * antifee
+                    self.bands_x.write(n, 0)
+                    self.bands_y.write(n, Inv / f - g)
+                    delta_y = self.bands_y.read(n) - y_old
+                    self.bands_y.write(n, y_old + delta_y * antifee)
                     self.active_band -= 1
 
-            dx += self.bands_x[n] - x
-            dy += self.bands_y[n] - y
+            dx += self.bands_x.read(n) - x
+            dy += self.bands_y.read(n) - y
 
         if dx or dy:
             # Commit once after all bands have used the captured snapshot.
@@ -560,8 +651,8 @@ class LendingAMM:
         """
         Measure the amount of y in the band n if we adiabatically trade near p_oracle on the way up
         """
-        x = self.bands_x[n]
-        y = self.bands_y[n]
+        x = self.bands_x.read(n)
+        y = self.bands_y.read(n)
         if x == 0 and y == 0:
             return 0
         p_o = self.p_oracle
@@ -619,8 +710,8 @@ class LendingAMM:
         """
         Measure the amount of x in the band n if we adiabatically trade near p_oracle on the way up
         """
-        x = self.bands_x[n]
-        y = self.bands_y[n]
+        x = self.bands_x.read(n)
+        y = self.bands_y.read(n)
         if x == 0 and y == 0:
             return 0
         p_o = self.p_oracle
@@ -677,14 +768,14 @@ class LendingAMM:
     # Keep legacy bounds and ascending summation; do not populate unrepresented bands.
     def get_all_y(self):
         total = 0.0
-        for i in sorted(self.bands_x.keys() | self.bands_y.keys()):
+        for i in sorted(self.bands_x._keys | self.bands_y._keys):
             if -500 <= i < 500:
                 total += self.get_y_up(i)
         return total
 
     def get_all_x(self):
         total = 0.0
-        for i in sorted(self.bands_x.keys() | self.bands_y.keys()):
+        for i in sorted(self.bands_x._keys | self.bands_y._keys):
             if -500 <= i < 500:
                 total += self.get_x_down(i)
         return total
