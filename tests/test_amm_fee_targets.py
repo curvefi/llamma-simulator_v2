@@ -73,7 +73,7 @@ class AmmFeeTargetTest(unittest.TestCase):
                     current = amm.get_p()
                     boundary = amm.p_up(0) if is_up else amm.p_down(0)
                     target = (current + boundary) / 2
-                    external = target / (1 - fee if is_up else 1 + fee)
+                    external = target / (1 - fee) if is_up else target * (1 - fee)
                     market = external / (1 - external_fee if is_up else 1 + external_fee)
 
                     f, g = amm.get_f(), amm.get_g()
@@ -81,9 +81,9 @@ class AmmFeeTargetTest(unittest.TestCase):
                     expected_x = sqrt(invariant * target) - f
                     expected_y = sqrt(invariant / target) - g
                     if is_up:
-                        expected_x += fee * (expected_x - 1.0)
+                        expected_x = 1.0 + (expected_x - 1.0) / (1 - fee)
                     else:
-                        expected_y += fee * (expected_y - 1.0)
+                        expected_y = 1.0 + (expected_y - 1.0) / (1 - fee)
 
                     replay_position(amm, [60, market, market, market, market, 1.0], 1.0, external_fee)
 

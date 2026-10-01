@@ -1,6 +1,11 @@
+import warnings
 from collections import defaultdict
 from math import floor, log, sqrt
-import warnings
+
+
+def fee_multiplier(fee: float) -> float:
+    # The contract caps fees at 1 - 1e-18, which rounds to 1.0 as a float.
+    return 1 / max(1 - fee, 1e-18)
 
 
 class LendingAMM:
@@ -267,13 +272,11 @@ class LendingAMM:
             # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
             price = original_price
 
-            fee = self.dynamic_fee(n, timestamp=self.current_timestamp)
-            p_c_d = self.p_down(n)
-            p_c_u = self.p_up(n)
+            antifee = fee_multiplier(self.dynamic_fee(n, timestamp=self.current_timestamp))
 
             if bstep == 1:  # up
-                price = price * (1 - fee)
-                if price < p_c_d:
+                price = price / antifee
+                if price <= (f + x) / (g + y):
                     break
 
                 # reduce y, increase x, go up
@@ -284,7 +287,7 @@ class LendingAMM:
                     self.bands_y[n] = y_dest
                     self.bands_x[n] = Inv / (g + y_dest) - f
                     delta_x = self.bands_x[n] - x_old
-                    self.bands_x[n] += fee * delta_x
+                    self.bands_x[n] = x_old + delta_x * antifee
                     dx += self.bands_x[n] - x
                     dy += self.bands_y[n] - y
                     break
@@ -293,12 +296,12 @@ class LendingAMM:
                     self.bands_y[n] = 0
                     self.bands_x[n] = Inv / g - f
                     delta_x = self.bands_x[n] - x_old
-                    self.bands_x[n] += fee * delta_x
+                    self.bands_x[n] = x_old + delta_x * antifee
                     self.active_band += 1
 
             else:  # down
-                price = price * (1 + fee)
-                if price > p_c_u:
+                price = price * antifee
+                if price >= (f + x) / (g + y):
                     break
 
                 # increase y, reduce x, go down
@@ -309,7 +312,7 @@ class LendingAMM:
                     self.bands_x[n] = x_dest
                     self.bands_y[n] = Inv / (f + x_dest) - g
                     delta_y = self.bands_y[n] - y_old
-                    self.bands_y[n] += fee * delta_y
+                    self.bands_y[n] = y_old + delta_y * antifee
                     dx += self.bands_x[n] - x
                     dy += self.bands_y[n] - y
                     break
@@ -318,7 +321,7 @@ class LendingAMM:
                     self.bands_x[n] = 0
                     self.bands_y[n] = Inv / f - g
                     delta_y = self.bands_y[n] - y_old
-                    self.bands_y[n] += fee * delta_y
+                    self.bands_y[n] = y_old + delta_y * antifee
                     self.active_band -= 1
 
             dx += self.bands_x[n] - x
