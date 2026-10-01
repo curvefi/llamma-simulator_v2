@@ -246,6 +246,10 @@ class LendingAMM:
         *,
         oracle_state: OracleState | None = None,
     ):
+        self.reset(p_base, A, fee, dynamic_fee_multiplier, oracle_state)
+
+    def reset(self, p_base, A, fee, dynamic_fee_multiplier=None, oracle_state=None):
+        """Clear the previous position and oracle memory before a new deposit."""
         self.PREV_P_O_DELAY = 2 * 60  # seconds
         self.MAX_P_O_CHANGE = 1.25  # matches on-chain MAX_P_O_CHG / 1e18
         self.MIN_PRICE_RATIO = 1 / self.MAX_P_O_CHANGE
@@ -261,9 +265,13 @@ class LendingAMM:
             self.restore_oracle_state(oracle_state)
         self.A = A
         self.dynamic_fee_multiplier = dynamic_fee_multiplier if dynamic_fee_multiplier is not None else 0.25
-        self.bands_x = BandBalances()
-        self.bands_y = BandBalances()
-        self.active_band = 0
+        if getattr(self, "bands_x", None) is None:
+            self.bands_x = BandBalances()
+            self.bands_y = BandBalances()
+        else:
+            self.bands_x.clear()
+            self.bands_y.clear()
+        self.min_band = self.max_band = self.active_band = 0
         self.fee = fee
 
     def oracle_state(self) -> OracleState:

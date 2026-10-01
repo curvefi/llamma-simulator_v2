@@ -25,6 +25,8 @@ def _calculate_loss(
     dynamic_fee_multiplier: float | None = None,
     position_shift: float = 0,  # [0, 1) how much lower from current prices
     initial_state: OracleState | None = None,
+    workspace=None,
+    external_fee_override=None,
 ):
     """Replay one position from numeric candles and aligned oracle observations."""
     if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
@@ -37,7 +39,11 @@ def _calculate_loss(
         initial_state = OracleState.initial(oracle_price, timestamp)
     if initial_state.prev_p_oracle_time > timestamp:
         raise ValueError("Starting oracle state is later than the first candle")
-    amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+    if workspace is None:
+        amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+    else:
+        amm = workspace
+        amm.reset(oracle_price, A, fee, dynamic_fee_multiplier, initial_state)
     snapshot = amm._observe(oracle_price, timestamp=timestamp)
     p0 = amm.p_oracle * (1 - position_shift)
 
@@ -52,7 +58,7 @@ def _calculate_loss(
         raise ValueError("Initial recovery value must be finite and positive")
 
     xs_normalized = []
-    external_fee = simulator.external_fee
+    external_fee = simulator.external_fee if external_fee_override is None else external_fee_override
     log_enabled = simulator.log_enabled
     verbose = simulator.verbose
 
@@ -427,3 +433,36 @@ def get_loss_rate_v2(
         n_top_samples = len(results) // 20
 
     return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples
+
+
+def replay_batch(simulator, points, records):
+    """Replay resolved windows without changing the simulator's settings.
+
+    Both inputs are two-dimensional float64 arrays. Points contain timestamp,
+    open, high, low, close, volume and oracle price. Records contain A, fee,
+    start, end, bands, external fee, dynamic-fee multiplier and an unused slot.
+    Start/end are resolved integer indices; end is exclusive. Positions are
+    unshifted and begin with default oracle memory. Storage is reset per window.
+    """
+    if points.ndim != 2 or records.ndim != 2 or points.shape[1] != 7 or records.shape[1] != 8:
+        raise ValueError("Expected seven price columns and eight task columns")
+    values = np.empty(len(records), dtype=np.float64)
+    output = values  # The native profile exposes this array as a typed view.
+    workspace = LendingAMM(1.0, 2, 0.0)
+    for i in range(len(records)):
+        lo = int(records[i, 2])
+        hi = int(records[i, 3])
+        output[i] = _calculate_loss(
+            simulator,
+            float(records[i, 0]),
+            float(records[i, 1]),
+            points[lo:hi, :6],
+            points[lo:hi, 6],
+            int(records[i, 4]),
+            float(records[i, 6]),
+            0.0,
+            None,
+            workspace,
+            float(records[i, 5]),
+        )
+    return values
