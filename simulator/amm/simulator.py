@@ -7,7 +7,7 @@ from multiprocessing import Pool
 import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
-from .lending_amm import LendingAMM, OracleState, oracle_states
+from .lending_amm import LendingAMM, OracleState
 from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
@@ -58,7 +58,12 @@ class Simulator:
         self.oracle_prices = self.oracle_prices[first:]
         if not self.prices or any(value is None for value in self.oracle_prices):
             raise ValueError("No complete causal oracle history for replay")
-        self.oracle_states = list(oracle_states((row[0], price) for row, price in zip(self.prices, self.oracle_prices)))
+        previous_timestamp = float("-inf")
+        for row, price in zip(self.prices, self.oracle_prices):
+            timestamp = row[0]
+            if not isfinite(price) or price <= 0 or not isfinite(timestamp) or timestamp <= previous_timestamp:
+                raise ValueError("Oracle history must have positive prices and increasing finite timestamps")
+            previous_timestamp = timestamp
 
     def load_prices(self) -> list:
         return self.price_history_loader.load_prices()
@@ -97,7 +102,6 @@ class Simulator:
             initial_liquidity_range,
             dynamic_fee_multiplier,
             position_shift,
-            initial_state=OracleState(*self.oracle_states[position_start_index]),
         )
 
     def calculate_loss(
@@ -114,21 +118,20 @@ class Simulator:
     ):
         if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
             raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
+        timestamp, oracle_price = prices_for_simulation[0][0], oracle_prices_for_simulation[0]
         if initial_state is None:
-            # Direct callers without earlier history start with zero fee memory.
-            initial_state = OracleState.initial(oracle_prices_for_simulation[0], prices_for_simulation[0][0])
-        if (
-            initial_state.current_timestamp != prices_for_simulation[0][0]
-            or initial_state.prev_p_oracle_time != prices_for_simulation[0][0]
-            or initial_state.raw_p_oracle != oracle_prices_for_simulation[0]
-        ):
-            raise ValueError("Starting oracle state does not match the first candle")
-        p0 = initial_state.p_oracle * (1 - position_shift)
+            # Synthetic windows start with zero memory; observations do not
+            # reveal the exchanges needed to reconstruct earlier AMM memory.
+            initial_state = OracleState.initial(oracle_price, timestamp)
+        if initial_state.prev_p_oracle_time > timestamp:
+            raise ValueError("Starting oracle state is later than the first candle")
+        amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+        amm.set_p_oracle(oracle_price, timestamp=timestamp)
+        p0 = amm.p_oracle * (1 - position_shift)
 
         initial_y0 = 1.0  # 1 ETH
-        p_base = p0 * (A / (A - 1) + 1e-4)
-        initial_x_value = initial_y0 * p_base
-        amm = LendingAMM(p_base, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+        amm.p_base = p0 * (A / (A - 1) + 1e-4)
+        initial_x_value = initial_y0 * amm.p_base
 
         # Fill ticks with liquidity
         self.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
@@ -175,7 +178,6 @@ class Simulator:
             high_external = high * (1 - self.external_fee)
             low_external = low * (1 + self.external_fee)
             high = find_target_price(high_external, t, is_up=True)
-            low = find_target_price(low_external, t, is_up=False)
 
             # Use fee-adjusted targets only to check profitability. The AMM
             # applies its own per-band fee inside trade_to_price().
@@ -189,6 +191,7 @@ class Simulator:
             #         assert amm.bands_y[n] == 0
             #         assert amm.bands_x[n] > 0
 
+            low = find_target_price(low_external, t, is_up=False)
             if low < amm.get_p():
                 amm.trade_to_price(low_external)
 
@@ -275,7 +278,6 @@ class SimulatorV2(Simulator):
             initial_liquidity_range,
             dynamic_fee_multiplier,
             position_shift,
-            initial_state=OracleState(*self.oracle_states[position_start_index]),
         )
 
     def single_run_v2_kw(self, kw):

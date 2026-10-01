@@ -51,11 +51,19 @@ preserved: a four-band position occupies bands 1–4 in its newly constructed gr
 This is a liquidation simulation setup, not a reconstruction of the controller's
 debt-dependent placement for a new loan.
 
-Oracle and dynamic-fee memory are prepared from the full available history before
-selecting a replay window. The opening state is restored before depositing and
-valuing the position; its first update is not applied twice. The history starts
-with zero fee memory because no earlier observations are available. Supplying
-history before the windows of interest allows that memory to warm up.
+The external oracle is calculated over the full available history before selecting
+replay windows. Each synthetic window starts at its first oracle observation with
+zero AMM fee memory. This is an explicit initial-condition assumption: observations
+alone cannot reconstruct the exchanges that wrote historical AMM memory. A direct
+`calculate_loss(..., initial_state=OracleState(...))` call can supply the last
+exchange's oracle, fee memory and timestamp, at or before the opening candle.
+The effective opening oracle is read from that state before deposit and valuation.
+
+Observations and fee quotes do not write persistent oracle memory. An executed
+trade uses one capped oracle/fee snapshot across all bands, then commits it once.
+An unprofitable trade attempt does not commit; `exchange_zero()` explicitly models
+the contract's zero-input exchange, which does commit. After an exchange, the next
+quote and valuation use the resulting read-only oracle view.
 
 For the EMA oracle, candle timestamps identify their opens and a close becomes
 available only at the end of its candle (60 seconds by default). The first candle
@@ -68,11 +76,10 @@ coefficient. Failed replays raise an error rather than contributing zero loss.
 These initialization changes intentionally change results; existing result files
 are not recalculated.
 
-The existing `LendingAMM` constructor remains usable; an optional `oracle_state`
-restores prepared history. Direct `calculate_loss()` calls without `initial_state`
-start at the first supplied oracle with zero fee memory. Supply the matching
-state from `oracle_states(...)` to retain earlier history. Ordinary
-`Simulator.single_run()` calls prepare and select that state automatically.
+The existing `LendingAMM` constructor remains usable; its optional `oracle_state`
+restores the three persistent memory fields. Oracle observations and the current
+replay timestamp are separate from that state. This model retains the existing
+high-then-low candle traversal and per-band arbitrage stopping rule.
 
 Run the regression tests with `python -m unittest discover -s tests -v`.
 

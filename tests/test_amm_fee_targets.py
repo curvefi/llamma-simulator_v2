@@ -17,7 +17,10 @@ def make_simulator(candles, oracle_prices, external_fee, liquidity=ConstantIniti
 
 def replay_position(amm, candle, oracle_price, external_fee):
     # Keep the prepared balances rather than depositing a new position.
-    simulator = make_simulator([candle], [oracle_price], external_fee, liquidity=Mock())
+    base = amm.p_base
+    liquidity = Mock()
+    liquidity.return_value.deposit.side_effect = lambda pool, amount: setattr(pool, "p_base", base)
+    simulator = make_simulator([candle], [oracle_price], external_fee, liquidity=liquidity)
     amm.set_p_oracle(oracle_price, candle[0])
     with patch("simulator.amm.simulator.LendingAMM", return_value=amm):
         simulator.calculate_loss(amm.A, amm.fee, [candle], [oracle_price], 4, initial_state=amm.oracle_state())
@@ -53,9 +56,7 @@ class AmmFeeTargetTest(unittest.TestCase):
 
                     simulator = make_simulator(candles, oracle_prices, external_fee)
                     with patch.object(LendingAMM, "trade_to_price", autospec=True, side_effect=checked_trade):
-                        simulator.calculate_loss(
-                            210, fee, candles, oracle_prices, 4, multiplier, initial_state=simulator.oracle_states[0]
-                        )
+                        simulator.calculate_loss(210, fee, candles, oracle_prices, 4, multiplier)
 
                     self.assertEqual(directions, {False, True})
 

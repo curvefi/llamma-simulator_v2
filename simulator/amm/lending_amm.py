@@ -17,36 +17,15 @@ def initial_recovery_coefficient(A: int, bands: int) -> float:
 
 
 class OracleState(NamedTuple):
-    """Oracle memory after an update, before any position-specific trade."""
+    """Persistent oracle memory written by the last exchange."""
 
-    p_oracle: float
-    prev_p_oracle: float
-    raw_p_oracle: float
     old_p_oracle: float
     old_dfee: float
     prev_p_oracle_time: float
-    current_timestamp: float
 
     @classmethod
     def initial(cls, price: float, timestamp: float):
-        return cls(price, price, price, price, 0.0, timestamp, timestamp)
-
-
-def oracle_states(observations):
-    """Prepare once from full (timestamp, oracle) history using the AMM transition."""
-    observations = iter(observations)
-    first = next(observations, None)
-    if first is None:
-        return
-    timestamp, price = first
-    # A and fees do not enter the oracle-memory transition.
-    amm = LendingAMM(price, 2, 0.0, oracle_state=OracleState.initial(price, timestamp))
-    yield amm.oracle_state()
-    for timestamp, price in observations:
-        if not isfinite(price) or price <= 0 or not isfinite(timestamp) or timestamp <= amm.current_timestamp:
-            raise ValueError("Oracle history must have positive prices and increasing finite timestamps")
-        amm.set_p_oracle(price, timestamp=timestamp)
-        yield amm.oracle_state()
+        return cls(price, 0.0, timestamp)
 
 
 class LendingAMM:
@@ -84,15 +63,12 @@ class LendingAMM:
         return OracleState(*(getattr(self, field) for field in OracleState._fields))
 
     def restore_oracle_state(self, state: OracleState):
-        if (
-            not all(isfinite(value) for value in state)
-            or min(state[:4]) <= 0
-            or not 0 <= state.old_dfee < 1
-            or state.prev_p_oracle_time > state.current_timestamp
-        ):
+        if not all(isfinite(value) for value in state) or state.old_p_oracle <= 0 or not 0 <= state.old_dfee <= 1:
             raise ValueError("Invalid oracle state")
         for field, value in zip(OracleState._fields, state):
             setattr(self, field, value)
+        self.p_oracle = self.prev_p_oracle = self.raw_p_oracle = state.old_p_oracle
+        self.current_timestamp = state.prev_p_oracle_time
 
     # Deposit:
     # - above active band - only in y,
@@ -107,9 +83,19 @@ class LendingAMM:
     #  - reduced_input *= (1 - fee), calc output for reduced_input, split fee * input across bands touched
 
     def set_p_oracle(self, p, timestamp: float | None = None):
-        price, _ = self._limit_price_oracle(p, timestamp, write=True)
+        """Observe the external oracle without committing exchange memory."""
+        timestamp = self._normalize_timestamp(timestamp)
+        if (
+            not isfinite(p)
+            or p <= 0
+            or (timestamp is not None and not isfinite(timestamp))
+            or (self.current_timestamp is not None and timestamp < self.current_timestamp)
+        ):
+            raise ValueError("Oracle observations require positive prices and nondecreasing finite timestamps")
+        self.raw_p_oracle = p
+        self.current_timestamp = timestamp
         self.prev_p_oracle = self.p_oracle
-        self.p_oracle = price
+        self.p_oracle, _ = self._price_oracle_view(timestamp)
 
     def dynamic_fee(self, n_band, timestamp: float | None = None):
         """Replicates on-chain logic: max(base fee, oracle-memory fee, distance fee)."""
@@ -120,9 +106,9 @@ class LendingAMM:
 
     def _normalize_timestamp(self, timestamp: float | None) -> float | None:
         if timestamp is None:
+            timestamp = self.current_timestamp
+        if timestamp is None:
             warnings.warn("Timestamp not provided. Oracle memory decay disabled; fee memory pinned at max.")
-            return self.prev_p_oracle_time
-        self.current_timestamp = timestamp
         return timestamp
 
     def _memory_dt(self, timestamp: float | None) -> float:
@@ -131,7 +117,7 @@ class LendingAMM:
         elapsed = max(timestamp - self.prev_p_oracle_time, 0)
         return self.PREV_P_O_DELAY - min(self.PREV_P_O_DELAY, elapsed)
 
-    def _limit_price_oracle(self, price: float, timestamp: float | None, write: bool) -> tuple[float, float]:
+    def _limit_price_oracle(self, price: float, timestamp: float | None) -> tuple[float, float]:
         timestamp = self._normalize_timestamp(timestamp)
         old_price = self.old_p_oracle
         old_dfee = self.old_dfee
@@ -149,20 +135,25 @@ class LendingAMM:
                 limited_price = old_price / self.MAX_P_O_CHANGE
 
             ratio = ((1.0 + old_dfee) - price_ratio**3) * (dt / self.PREV_P_O_DELAY)
-            ratio = min(max(ratio, 0.0), 1.0 - 1e-18)
-
-        if write:
-            self.raw_p_oracle = price
-            self.old_p_oracle = limited_price
-            self.old_dfee = ratio
-            if timestamp is not None:
-                self.prev_p_oracle_time = timestamp
+            # The on-chain cap of 1 - 1e-18 rounds to 1.0 as a float.
+            ratio = min(max(ratio, 0.0), 1.0)
 
         return limited_price, ratio
 
     def _price_oracle_view(self, timestamp: float | None) -> tuple[float, float]:
         price = self.raw_p_oracle if self.raw_p_oracle is not None else self.p_oracle
-        return self._limit_price_oracle(price, timestamp, write=False)
+        return self._limit_price_oracle(price, timestamp)
+
+    def _commit_oracle(self, snapshot: tuple[float, float]):
+        self.old_p_oracle, self.old_dfee = snapshot
+        self.prev_p_oracle_time = self.current_timestamp
+        # The next view can differ from the snapshot used by this exchange.
+        self.p_oracle, _ = self._price_oracle_view(self.current_timestamp)
+
+    def exchange_zero(self):
+        """An explicit zero-input exchange still writes oracle memory on-chain."""
+        self._commit_oracle(self._price_oracle_view(self.current_timestamp))
+        return 0, 0
 
     def _distance_fee(self, p_oracle: float, n_band: int) -> float:
         p_o_up = self.p_top(n_band)
@@ -292,6 +283,10 @@ class LendingAMM:
         This method applies the AMM fee per band; callers must not pre-apply it.
         """
 
+        snapshot = self._price_oracle_view(self.current_timestamp)
+        self.p_oracle, oracle_memory_fee = snapshot
+        original_band = self.active_band
+
         if self.bands_x[self.active_band] == 0 and self.bands_y[self.active_band] == 0:
             # If current band is empty - steps are determined by whether current price is higher or lower than
             # boundaries
@@ -337,7 +332,7 @@ class LendingAMM:
             # p = (f + x) / (g + y) => p * (g + y)**2 = I or (f + x)**2 / p = I
             price = original_price
 
-            fee = self.dynamic_fee(n, timestamp=self.current_timestamp)
+            fee = max(self.fee, oracle_memory_fee, self._distance_fee(self.p_oracle, n))
             p_c_d = self.p_down(n)
             p_c_u = self.p_up(n)
 
@@ -394,6 +389,11 @@ class LendingAMM:
             dx += self.bands_x[n] - x
             dy += self.bands_y[n] - y
 
+        if dx or dy:
+            # Commit once after all bands have used the captured snapshot.
+            self._commit_oracle(snapshot)
+        else:
+            self.active_band = original_band
         return dx, dy
 
     def get_y_up(self, n):

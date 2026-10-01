@@ -3,7 +3,7 @@ from decimal import Decimal, localcontext
 from unittest.mock import Mock, patch
 
 from simulator.amm.intitial_liquidity import ConstantInitialLiquidity
-from simulator.amm.lending_amm import LendingAMM, OracleState, initial_recovery_coefficient, oracle_states
+from simulator.amm.lending_amm import LendingAMM, OracleState, initial_recovery_coefficient
 from simulator.amm.simulator import Simulator, get_loss_rate
 
 
@@ -44,45 +44,42 @@ class OracleStateTest(unittest.TestCase):
         self.assertIsNone(amm.current_timestamp)
         amm.set_p_oracle(101, 60)
         self.assertEqual(amm.p_oracle, 101)
-        self.assertAlmostEqual(amm.old_dfee, 1 - (100 / 101) ** 3)
+        self.assertEqual(amm.old_dfee, 0)
 
     def test_direct_replay_without_history_starts_at_opening_oracle(self):
         candles = [[60, 1.1, 1.1, 1.1, 1.1, 0], [120, 0.99, 1, 0.98, 0.99, 0]]
         sim = simulator(candles, [1, 0.99])
         self.assertEqual(sim.calculate_loss(100, 0.001, candles, [1, 0.99], 4), sim.single_run(100, 0.001, 0, 1, 4))
 
-    def test_actual_history_retains_memory_independent_of_candidate(self):
-        observations = [(0, 100), (60, 101), (120, 99), (300, 98), (360, 140)]
-        expected = list(oracle_states(observations))
-        self.assertAlmostEqual(expected[1].old_dfee, 0.5 * (1 - (100 / 101) ** 3))
-        self.assertEqual(expected[3].old_dfee, 0)
-        for a, fee, distance in [(2, 0, 0), (10, 0.025, 0.25), (393, 0.0028, 1)]:
-            amm = LendingAMM(1000, a, fee, distance, oracle_state=expected[0])
-            amm.deposit_nrange(7, 90, 4)
-            for i, (t, price) in enumerate(observations[1:], 1):
-                amm.set_p_oracle(price, t)
-                self.assertEqual(amm.oracle_state(), expected[i])
-                restored = LendingAMM(2, a, fee, distance, oracle_state=expected[i])
-                self.assertEqual(restored.oracle_state(), expected[i])
+    def test_window_does_not_infer_exchange_memory_from_observations(self):
+        candles = [[t, p, p, p, p, 0] for t, p in [(0, 1), (60, 1.1), (120, 1.2)]]
+        sim = simulator(candles, [1, 1.1, 1.2])
+        observed = []
+        deposit = ConstantInitialLiquidity.deposit
 
-    def test_restart_does_not_apply_first_clamped_update_twice(self):
-        for jump, effective in [(4, 1.25), (0.25, 0.8)]:
-            candles = [[t, p, p, p, p, 0] for t, p in [(0, 1), (60, jump), (120, jump)]]
-            sim = simulator(candles, [1, jump, jump])
-            self.assertEqual(sim.oracle_states[1].p_oracle, effective)
-            calls = []
-            update = LendingAMM.set_p_oracle
+        def checked(liquidity, amm, amount):
+            observed.append(amm.oracle_state())
+            return deposit(liquidity, amm, amount)
 
-            def checked(amm, price, timestamp):
-                calls.append(timestamp)
-                return update(amm, price, timestamp)
+        with patch.object(ConstantInitialLiquidity, "deposit", checked):
+            sim.single_run(100, 0.001, 1 / 3, 2 / 3, 4)
+        self.assertEqual(observed, [OracleState.initial(1.1, 60)])
 
-            with patch.object(LendingAMM, "set_p_oracle", checked):
-                sim.single_run(100, 0.001, 1 / 3, 2 / 3, 4)
-            self.assertEqual(calls, [120])
+    def test_invalid_history_and_future_memory_are_rejected(self):
+        for observations in ([(0, 1), (0, 1)], [(0, 1), (60, 0)], [(float("nan"), 1)], [(0, float("inf"))]):
+            candles = [[t, 1, 1, 1, 1, 0] for t, _ in observations]
+            with self.assertRaisesRegex(ValueError, "Oracle history"):
+                simulator(candles, [p for _, p in observations])
+        candles = [[60, 1, 1, 1, 1, 0]]
+        sim = simulator(candles, [1])
+        with self.assertRaisesRegex(ValueError, "later than"):
+            sim.calculate_loss(100, 0.001, candles, [1], 4, initial_state=OracleState.initial(1, 61))
+        for state in (OracleState(0, 0, 0), OracleState(1, -0.1, 0), OracleState(1, 1.1, 0)):
+            with self.assertRaisesRegex(ValueError, "Invalid oracle state"):
+                LendingAMM(1, 100, 0.001, oracle_state=state)
 
     def test_flat_history_no_artificial_fee_and_correct_bands(self):
-        state = list(oracle_states((t, 1.0) for t in range(0, 300, 60)))[-1]
+        state = OracleState.initial(1, 240)
         self.assertEqual(state.old_dfee, 0)
         for a in (2, 10, 100, 393, 600, 1200, 10000):
             for bands in (1, 4, 50):
@@ -96,12 +93,12 @@ class OracleStateTest(unittest.TestCase):
                 self.assertAlmostEqual(initial_recovery_coefficient(a, bands), expected, delta=1e-10)
 
     def test_placement_matches_phil_without_resetting_memory(self):
-        state = list(oracle_states([(0, 1), (60, 1.1), (120, 0.8)]))[-1]
+        state = OracleState(0.8, 0.2, 120)
         self.assertGreater(state.old_dfee, 0)
         for a in (10, 393, 600, 1200, 10000):
             for bands in (1, 4, 50):
                 for shift in (0, 0.05):
-                    p0 = state.p_oracle * (1 - shift)
+                    p0 = state.old_p_oracle * (1 - shift)
                     base = p0 * (a / (a - 1) + 0.0001)
                     # Phil deposits while the constructor oracle is p_base.
                     phil = LendingAMM(base, a, 0.001, oracle_state=OracleState.initial(base, 120))
@@ -118,11 +115,9 @@ class OracleStateTest(unittest.TestCase):
     def test_replay_anchors_to_effective_oracle_and_preserves_band_range(self):
         # The raw oracle jumps to 4, but the AMM limits the opening value to
         # 1.25. Neither the market price nor the unclamped value sets the grid.
-        candles = [[0, 1, 1, 1, 1, 0], [60, 1.1, 1.1, 1.1, 1.1, 0]]
-        sim = simulator(candles, [1, 4])
-        state = sim.oracle_states[1]
-        self.assertEqual(state.p_oracle, 1.25)
-        self.assertGreater(state.old_dfee, 0)
+        candles = [[60, 1.1, 1.1, 1.1, 1.1, 0]]
+        sim = simulator(candles, [4])
+        state = OracleState(1, 0.1, 0)
         deposit = ConstantInitialLiquidity.deposit
         for shift in (0, 0.05):
             with self.subTest(shift=shift):
@@ -134,8 +129,8 @@ class OracleStateTest(unittest.TestCase):
                     self.assertEqual([amm.bands_y[n] for n in range(1, 5)], [0.25] * 4)
 
                 with patch.object(ConstantInitialLiquidity, "deposit", checked):
-                    sim.single_run(100, 0.001, 0.5, 0.5, 4, position_shift=shift)
-                p0 = state.p_oracle * (1 - shift)
+                    sim.calculate_loss(100, 0.001, candles, [4], 4, position_shift=shift, initial_state=state)
+                p0 = 1.25 * (1 - shift)
                 self.assertEqual(observed, [(p0, p0 * (100 / 99 + 0.0001), 1, 4, state)])
 
     def test_score_preserves_terminal_recovery_objective(self):
