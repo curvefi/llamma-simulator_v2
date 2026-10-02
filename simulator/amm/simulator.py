@@ -4,14 +4,128 @@ from datetime import datetime
 from math import isfinite
 from multiprocessing import Pool
 
+import numpy as np
 import psutil
 
 from .intitial_liquidity import BaseRangeInitialLiquidity
-from .lending_amm import LendingAMM, OracleState, fee_multiplier
+from .lending_amm import LendingAMM, OracleState, fee_multiplier, find_target_price
 from .price_history_loader import BasePriceHistoryLoader, VolatilityPriceHistoryLoader
 from .price_oracle import BasePriceOracle
 
 logger = logging.getLogger(__name__)
+
+
+def _calculate_loss(
+    simulator,
+    A: int,
+    fee: float,
+    prices_for_simulation,
+    oracle_prices_for_simulation,
+    initial_liquidity_range: int,  # p0 then n number of bands
+    dynamic_fee_multiplier: float | None = None,
+    position_shift: float = 0,  # [0, 1) how much lower from current prices
+    initial_state: OracleState | None = None,
+    workspace=None,
+    external_fee_override=None,
+):
+    """Replay one position from numeric candles and aligned oracle observations."""
+    if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
+        raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
+    timestamp = float(prices_for_simulation[0, 0])
+    oracle_price = float(oracle_prices_for_simulation[0])
+    if initial_state is None:
+        # Synthetic windows start with zero memory; observations do not
+        # reveal the exchanges needed to reconstruct earlier AMM memory.
+        initial_state = OracleState.initial(oracle_price, timestamp)
+    if initial_state.prev_p_oracle_time > timestamp:
+        raise ValueError("Starting oracle state is later than the first candle")
+    if workspace is None:
+        amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
+    else:
+        amm = workspace
+        amm.reset(oracle_price, A, fee, dynamic_fee_multiplier, initial_state)
+    snapshot = amm._observe(oracle_price, timestamp=timestamp)
+    p0 = amm.p_oracle * (1 - position_shift)
+
+    initial_y0 = 1.0  # 1 ETH
+    amm.p_base = p0 * (A / (A - 1) + 1e-4)
+    initial_x_value = initial_y0 * amm.p_base
+
+    # Fill ticks with liquidity
+    simulator.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
+    initial_all_x = amm.get_all_x()
+    if not isfinite(initial_all_x) or initial_all_x <= 0:
+        raise ValueError("Initial recovery value must be finite and positive")
+
+    xs_normalized = []
+    external_fee = simulator.external_fee if external_fee_override is None else external_fee_override
+    log_enabled = simulator.log_enabled
+    verbose = simulator.verbose
+
+    # <----------------- Calculation ----------------->
+    for i in range(len(prices_for_simulation)):
+        t = float(prices_for_simulation[i, 0])
+        high = float(prices_for_simulation[i, 2])
+        low = float(prices_for_simulation[i, 3])
+        oracle_price = float(oracle_prices_for_simulation[i])
+        if i:
+            snapshot = amm._observe(oracle_price, timestamp=t)
+
+        high_external = high * (1 - external_fee)
+        low_external = low * (1 + external_fee)
+        # Use fee-adjusted targets only to check profitability. The AMM
+        # applies its own per-band fee inside trade_to_price().
+        # Distance fees can only increase the base/oracle fee. Skip the band
+        # search when even that minimum fee makes this direction unprofitable.
+        current_price, lower_price, upper_price = amm._trade_prices()
+        antifee = fee_multiplier(max(amm.fee, snapshot[1]))
+        # Bounds apply to raw prices. Applying fees to these bounds could skip
+        # a tiny exchange whose oracle-memory write changes later trades.
+        if high_external > upper_price and high_external / antifee > current_price:
+            high = find_target_price(amm, high_external, snapshot[0], snapshot[1], is_up=True)
+            if high > current_price:
+                amm.trade_to_price(high_external)
+                snapshot = amm._price_oracle_at(t)
+                antifee = fee_multiplier(max(amm.fee, snapshot[1]))
+                current_price, lower_price, upper_price = amm._trade_prices()
+
+        # Not correct for dynamic fees which are too high
+        # if high > max_price:
+        #     # Check that AMM has only stablecoins
+        #     for n in range(amm.min_band, amm.max_band + 1):
+        #         assert amm.bands_y[n] == 0
+        #         assert amm.bands_x[n] > 0
+
+        if low_external < lower_price and low_external * antifee < current_price:
+            low = find_target_price(amm, low_external, snapshot[0], snapshot[1], is_up=False)
+            if low < current_price:
+                amm.trade_to_price(low_external)
+
+        # Not correct for dynamic fees which are too high
+        # if low < min_price:
+        #     # Check that AMM has only collateral
+        #     for n in range(amm.min_band, amm.max_band + 1):
+        #         assert amm.bands_x[n] == 0
+        #         assert amm.bands_y[n] > 0
+
+        if log_enabled:
+            d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
+            current_x_total_normalized = amm.get_all_x() / initial_x_value
+            logger.info(
+                f"Current x total for {d}: {current_x_total_normalized:.4f}, oracle price: {oracle_price:.2f}, amm_price: {amm.get_p():.2f}"
+            )
+
+        if verbose:
+            current_x_total_normalized = amm.get_all_x() / initial_x_value
+            xs_normalized.append([t, current_x_total_normalized])
+
+    if verbose:
+        logger.info(f"Xs after trades list: {xs_normalized}")
+
+    loss = 1 - amm.get_all_x() / initial_all_x
+    if not isfinite(loss):
+        raise ValueError("Final loss is not finite")
+    return loss
 
 
 class Simulator:
@@ -118,105 +232,21 @@ class Simulator:
     ):
         if len(prices_for_simulation) == 0 or len(prices_for_simulation) != len(oracle_prices_for_simulation):
             raise ValueError("Replay requires nonempty, aligned candles and oracle observations")
-        timestamp, oracle_price = prices_for_simulation[0][0], oracle_prices_for_simulation[0]
-        if initial_state is None:
-            # Synthetic windows start with zero memory; observations do not
-            # reveal the exchanges needed to reconstruct earlier AMM memory.
-            initial_state = OracleState.initial(oracle_price, timestamp)
-        if initial_state.prev_p_oracle_time > timestamp:
-            raise ValueError("Starting oracle state is later than the first candle")
-        amm = LendingAMM(oracle_price, A, fee, dynamic_fee_multiplier, oracle_state=initial_state)
-        amm.set_p_oracle(oracle_price, timestamp=timestamp)
-        p0 = amm.p_oracle * (1 - position_shift)
-
-        initial_y0 = 1.0  # 1 ETH
-        amm.p_base = p0 * (A / (A - 1) + 1e-4)
-        initial_x_value = initial_y0 * amm.p_base
-
-        # Fill ticks with liquidity
-        self.initial_liquidity_class(p0, initial_liquidity_range).deposit(amm, initial_y0)
-        initial_all_x = amm.get_all_x()
-        if not isfinite(initial_all_x) or initial_all_x <= 0:
-            raise ValueError("Initial recovery value must be finite and positive")
-
-        xs_normalized = []
-
-        def find_target_price(p, timestamp, is_up=True):
-            # Find target band
-            if is_up:
-                for n in range(amm.max_band, amm.min_band - 1, -1):
-                    p_down = amm.p_down(n)
-                    target = p / fee_multiplier(amm.dynamic_fee(n, timestamp=timestamp))
-
-                    if target > p_down:
-                        return target
-
-            else:
-                for n in range(amm.min_band, amm.max_band + 1):
-                    p_up = amm.p_up(n)
-                    target = p * fee_multiplier(amm.dynamic_fee(n, timestamp=timestamp))
-
-                    if target < p_up:
-                        return target
-
-            # price is outside of liquidity
-            if is_up:
-                return p / fee_multiplier(amm.dynamic_fee(amm.min_band, timestamp=timestamp))
-            else:
-                return p * fee_multiplier(amm.dynamic_fee(amm.max_band, timestamp=timestamp))
-
-        # <----------------- Calculation ----------------->
-        for i, ((t, open, high, low, close, vol), oracle_price) in enumerate(
-            zip(prices_for_simulation, oracle_prices_for_simulation)
-        ):
-            if i:
-                amm.set_p_oracle(oracle_price, timestamp=t)
-
-            high_external = high * (1 - self.external_fee)
-            low_external = low * (1 + self.external_fee)
-            high = find_target_price(high_external, t, is_up=True)
-
-            # Use fee-adjusted targets only to check profitability. The AMM
-            # applies its own per-band fee inside trade_to_price().
-            if high > amm.get_p():
-                amm.trade_to_price(high_external)
-
-            # Not correct for dynamic fees which are too high
-            # if high > max_price:
-            #     # Check that AMM has only stablecoins
-            #     for n in range(amm.min_band, amm.max_band + 1):
-            #         assert amm.bands_y[n] == 0
-            #         assert amm.bands_x[n] > 0
-
-            low = find_target_price(low_external, t, is_up=False)
-            if low < amm.get_p():
-                amm.trade_to_price(low_external)
-
-            # Not correct for dynamic fees which are too high
-            # if low < min_price:
-            #     # Check that AMM has only collateral
-            #     for n in range(amm.min_band, amm.max_band + 1):
-            #         assert amm.bands_x[n] == 0
-            #         assert amm.bands_y[n] > 0
-
-            if self.log_enabled:
-                d = datetime.fromtimestamp(t).strftime("%Y/%m/%d %H:%M")
-                current_x_total_normalized = amm.get_all_x() / initial_x_value
-                logger.info(
-                    f"Current x total for {d}: {current_x_total_normalized:.4f}, oracle price: {oracle_price:.2f}, amm_price: {amm.get_p():.2f}"
-                )
-
-            if self.verbose:
-                current_x_total_normalized = amm.get_all_x() / initial_x_value
-                xs_normalized.append([t, current_x_total_normalized])
-
-        if self.verbose:
-            logger.info(f"Xs after trades list: {xs_normalized}")
-
-        loss = 1 - amm.get_all_x() / initial_all_x
-        if not isfinite(loss):
-            raise ValueError("Final loss is not finite")
-        return loss
+        candles = np.asarray(prices_for_simulation, dtype=np.float64)
+        oracles = np.asarray(oracle_prices_for_simulation, dtype=np.float64)
+        if candles.ndim != 2 or candles.shape[1] != 6 or oracles.ndim != 1:
+            raise ValueError("Replay requires six candle columns and one oracle column")
+        return _calculate_loss(
+            self,
+            A,
+            fee,
+            candles,
+            oracles,
+            initial_liquidity_range,
+            dynamic_fee_multiplier,
+            position_shift,
+            initial_state=initial_state,
+        )
 
     def single_run_kw(self, kw):
         return self.single_run(**kw)
@@ -412,3 +442,36 @@ def get_loss_rate_v2(
         n_top_samples = len(results) // 20
 
     return sum(sorted(results)[::-1][:n_top_samples]) / n_top_samples
+
+
+def replay_batch(simulator, points, records):
+    """Replay resolved windows without changing the simulator's settings.
+
+    Both inputs are two-dimensional float64 arrays. Points contain timestamp,
+    open, high, low, close, volume and oracle price. Records contain A, fee,
+    start, end, bands, external fee, dynamic-fee multiplier and an unused slot.
+    Start/end are resolved integer indices; end is exclusive. Positions are
+    unshifted and begin with default oracle memory. Storage is reset per window.
+    """
+    if points.ndim != 2 or records.ndim != 2 or points.shape[1] != 7 or records.shape[1] != 8:
+        raise ValueError("Expected seven price columns and eight task columns")
+    values = np.empty(len(records), dtype=np.float64)
+    output = values  # The native profile exposes this array as a typed view.
+    workspace = LendingAMM(1.0, 2, 0.0)
+    for i in range(len(records)):
+        lo = int(records[i, 2])
+        hi = int(records[i, 3])
+        output[i] = _calculate_loss(
+            simulator,
+            float(records[i, 0]),
+            float(records[i, 1]),
+            points[lo:hi, :6],
+            points[lo:hi, 6],
+            int(records[i, 4]),
+            float(records[i, 6]),
+            position_shift=0.0,
+            initial_state=None,
+            workspace=workspace,
+            external_fee_override=float(records[i, 5]),
+        )
+    return values
